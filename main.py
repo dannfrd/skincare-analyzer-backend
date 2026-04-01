@@ -1,4 +1,7 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 import shutil
 import os
@@ -10,6 +13,8 @@ from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image
 
+API_MONITORING_KEY = os.getenv("MONITORING_API_KEY")
+
 app = FastAPI()
 
 # Make sure uploads directory exists
@@ -18,6 +23,25 @@ os.makedirs("uploads", exist_ok=True)
 # model request dari Flutter
 class IngredientRequest(BaseModel):
     text: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    services: Dict[str, Dict[str, Any]]
+    timestamp: datetime
+
+
+class MetricsSummaryResponse(BaseModel):
+    analysis: Dict[str, Any]
+    ingredients: Dict[str, Any]
+    generated_at: datetime
+
+
+class RecentAnalysisResponse(BaseModel):
+    id: int
+    raw_text: str
+    ai_analysis: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = None
 
 @app.get("/")
 def root():
@@ -84,3 +108,57 @@ def process_text_analysis(raw_text: str):
         result_data["analysis_id"] = saved_id
 
     return result_data
+
+
+def require_monitoring_api_key(x_api_key: str | None = Header(default=None)):
+    """Simple API key guard for monitoring endpoints."""
+    if API_MONITORING_KEY and x_api_key != API_MONITORING_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _current_timestamp() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _service_status(healthy: bool, detail: str = "") -> Dict[str, Any]:
+    return {
+        "status": "up" if healthy else "down",
+        "detail": detail,
+    }
+
+
+@app.get("/health", response_model=HealthResponse)
+def health_status(_: None = Depends(require_monitoring_api_key)):
+    db = get_db_connection()
+    db_status = db.ping()
+    ocr_ready = shutil.which("tesseract") is not None
+    gemini_ready = bool(os.getenv("GEMINI_API_KEY"))
+
+    services = {
+        "database": _service_status(db_status),
+        "ocr": _service_status(ocr_ready, "Tesseract binary not found" if not ocr_ready else ""),
+        "gemini_ai": _service_status(gemini_ready, "Missing GEMINI_API_KEY" if not gemini_ready else ""),
+    }
+
+    overall_status = "up" if all(service["status"] == "up" for service in services.values()) else "degraded"
+
+    return HealthResponse(status=overall_status, services=services, timestamp=_current_timestamp())
+
+
+@app.get("/metrics/summary", response_model=MetricsSummaryResponse)
+def metrics_summary(_: None = Depends(require_monitoring_api_key)):
+    db = get_db_connection()
+    analysis = db.get_analysis_summary()
+    ingredients = db.get_ingredient_summary()
+    return MetricsSummaryResponse(analysis=analysis, ingredients=ingredients, generated_at=_current_timestamp())
+
+
+@app.get("/metrics/recent", response_model=List[RecentAnalysisResponse])
+def metrics_recent(
+    limit: int = Query(default=15, ge=1, le=100),
+    _: None = Depends(require_monitoring_api_key),
+):
+    db = get_db_connection()
+    records = db.get_recent_analysis_results(limit=limit)
+    # FastAPI will coerce dict list into the response model
+    return records
