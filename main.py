@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import shutil
 import os
 
@@ -34,12 +34,22 @@ class HealthResponse(BaseModel):
 class MetricsSummaryResponse(BaseModel):
     analysis: Dict[str, Any]
     ingredients: Dict[str, Any]
+    entities: Dict[str, Any] = Field(default_factory=dict)
     generated_at: datetime
 
 
 class RecentAnalysisResponse(BaseModel):
     id: int
-    raw_text: str
+    scan_id: Optional[int] = None
+    raw_text: Optional[str] = None
+    summary: Optional[str] = None
+    recommendation: Optional[str] = None
+    status: Optional[str] = None
+    matched_ingredient_count: Optional[int] = None
+    matched_ingredients: Optional[List[str]] = None
+    detail_count: Optional[int] = None
+    user: Optional[Dict[str, Any]] = None
+    product: Optional[Dict[str, Any]] = None
     ai_analysis: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
 
@@ -150,7 +160,13 @@ def metrics_summary(_: None = Depends(require_monitoring_api_key)):
     db = get_db_connection()
     analysis = db.get_analysis_summary()
     ingredients = db.get_ingredient_summary()
-    return MetricsSummaryResponse(analysis=analysis, ingredients=ingredients, generated_at=_current_timestamp())
+    entities = db.get_entity_summary()
+    return MetricsSummaryResponse(
+        analysis=analysis,
+        ingredients=ingredients,
+        entities=entities,
+        generated_at=_current_timestamp(),
+    )
 
 
 @app.get("/metrics/recent", response_model=List[RecentAnalysisResponse])
