@@ -9,6 +9,7 @@ import os
 from modules.text_cleaning import clean_text_pipeline
 from modules.ingredient_matching import match_tokens_to_db
 from modules.gemini_ai import analyze_ingredients_with_ai
+from modules.expert_system import run_expert_system
 from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image
@@ -62,6 +63,21 @@ def analyze_ingredients(data: IngredientRequest):
     raw_text = data.text
     return process_text_analysis(raw_text)
 
+
+@app.get("/analysis-history")
+def analysis_history(limit: int = Query(default=10, ge=1, le=100)):
+    db = get_db_connection()
+    return {"items": db.get_recent_analysis_results(limit=limit)}
+
+
+@app.get("/analysis/{analysis_id}")
+def analysis_detail(analysis_id: int):
+    db = get_db_connection()
+    detail = db.get_analysis_detail(analysis_id=analysis_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Analysis data not found")
+    return detail
+
 @app.post("/analyze-image")
 async def analyze_image(file: UploadFile = File(...)):
     """Receives an image for OCR, then processes the text."""
@@ -99,25 +115,75 @@ def process_text_analysis(raw_text: str):
     
     # 3. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
+
+    # 4. Rule-based expert analysis
+    expert_report = run_expert_system(matched_ingredients)
     
-    # 4. Gemini AI analysis
+    # 5. Gemini AI analysis
     ai_result_text = analyze_ingredients_with_ai(raw_text)
+
+    summary_text = _build_summary_text(expert_report)
+    recommendation_text = _build_recommendation_text(expert_report, ai_result_text)
 
     # Membentuk dictionary final (JSON Result -> Flutter)
     result_data = {
         "input_text": raw_text,
         "cleaned_tokens": cleaned_tokens,
         "matched_ingredients": matched_ingredients,
-        "ai_analysis": ai_result_text
+        "expert_analysis": expert_report,
+        "summary": summary_text,
+        "recommendation": recommendation_text,
+        "ai_analysis": {
+            "model_output": ai_result_text,
+        },
     }
 
-    # 5. MySQL Database (Laragon) - Simpan hasil analisis
+    # 6. MySQL Database (Laragon) - Simpan hasil analisis
     # Note: DB schema must align
-    saved_id = db.save_analysis_result(raw_text=raw_text, ai_result=result_data)
+    saved_id = db.save_analysis_result(
+        raw_text=raw_text,
+        ai_result=result_data,
+        matched_ingredients=matched_ingredients,
+        expert_report=expert_report,
+    )
     if saved_id:
         result_data["analysis_id"] = saved_id
 
     return result_data
+
+
+def _build_summary_text(expert_report: Dict[str, Any]) -> str:
+    score = expert_report.get("overall_score", 0)
+    classification = expert_report.get("classification", "Unknown")
+    total_identified = expert_report.get("total_ingredients_identified", 0)
+    warning_count = expert_report.get("warnings_found", 0)
+    return (
+        f"Skor keamanan {score}/100 ({classification}). "
+        f"Bahan dikenali: {total_identified}. Peringatan: {warning_count}."
+    )
+
+
+def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> str:
+    flags = expert_report.get("flags") if isinstance(expert_report, dict) else []
+    if isinstance(flags, list) and flags:
+        first_flag = flags[0] if isinstance(flags[0], dict) else {}
+        ingredient = first_flag.get("ingredient")
+        message = first_flag.get("message")
+        if ingredient and message:
+            return f"Perhatikan ingredient {ingredient}: {message}"
+
+    unknown_count = expert_report.get("total_unknown", 0) if isinstance(expert_report, dict) else 0
+    if isinstance(unknown_count, int) and unknown_count > 0:
+        return (
+            f"Ada {unknown_count} bahan yang belum dikenali. "
+            "Lengkapi master ingredients agar analisis lebih akurat."
+        )
+
+    cleaned_ai = (ai_text or "").strip()
+    if cleaned_ai:
+        return cleaned_ai[:260]
+
+    return "Secara umum formula cukup aman, tetap lakukan patch test sebelum pemakaian rutin."
 
 
 def require_monitoring_api_key(x_api_key: str | None = Header(default=None)):
