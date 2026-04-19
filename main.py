@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 import shutil
 import os
 
-from modules.text_cleaning import clean_text_pipeline
+from modules.text_cleaning import clean_text_pipeline, extract_ingredient_text
 from modules.ingredient_matching import match_tokens_to_db
 from modules.gemini_ai import analyze_ingredients_with_ai
 from modules.expert_system import run_expert_system
@@ -106,21 +106,38 @@ async def analyze_image(file: UploadFile = File(...)):
 
 def process_text_analysis(raw_text: str):
     """Helper function to run the NLP/AI pipeline on text."""
-    # 1. Text cleaning
-    cleaned_tokens = clean_text_pipeline(raw_text)
+    # 1. Keep only ingredient-like text for downstream AI and matching
+    ingredient_text = extract_ingredient_text(raw_text)
+
+    # 2. Text cleaning/tokenization
+    cleaned_tokens = clean_text_pipeline(ingredient_text)
     
-    # 2. Persiapkan database connection & data ingredients dari MySQL
+    # 3. Persiapkan database connection & data ingredients dari MySQL
     db = get_db_connection()
     db_ingredients = db.get_all_ingredients()
     
-    # 3. Ingredient matching
+    # 4. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
 
-    # 4. Rule-based expert analysis
+    # 5. Rule-based expert analysis
     expert_report = run_expert_system(matched_ingredients)
     
-    # 5. Gemini AI analysis
-    ai_result_text = analyze_ingredients_with_ai(raw_text)
+    # 6. Gemini AI analysis with model fallback + dataset-grounded prompt
+    ai_result_payload = analyze_ingredients_with_ai(
+        text=ingredient_text,
+        ingredient_tokens=cleaned_tokens,
+        matched_ingredients=matched_ingredients,
+        include_metadata=True,
+    )
+
+    if isinstance(ai_result_payload, dict):
+        ai_result_text = str(ai_result_payload.get("text") or "")
+        ai_model_used = ai_result_payload.get("model")
+        ai_models_tried = ai_result_payload.get("models_tried") or []
+    else:
+        ai_result_text = str(ai_result_payload)
+        ai_model_used = None
+        ai_models_tried = []
 
     summary_text = _build_summary_text(expert_report)
     recommendation_text = _build_recommendation_text(expert_report, ai_result_text)
@@ -128,6 +145,7 @@ def process_text_analysis(raw_text: str):
     # Membentuk dictionary final (JSON Result -> Flutter)
     result_data = {
         "input_text": raw_text,
+        "ingredient_text_used": ingredient_text,
         "cleaned_tokens": cleaned_tokens,
         "matched_ingredients": matched_ingredients,
         "expert_analysis": expert_report,
@@ -135,10 +153,12 @@ def process_text_analysis(raw_text: str):
         "recommendation": recommendation_text,
         "ai_analysis": {
             "model_output": ai_result_text,
+            "model_used": ai_model_used,
+            "models_tried": ai_models_tried,
         },
     }
 
-    # 6. MySQL Database (Laragon) - Simpan hasil analisis
+    # 7. MySQL Database (Laragon) - Simpan hasil analisis
     # Note: DB schema must align
     saved_id = db.save_analysis_result(
         raw_text=raw_text,
