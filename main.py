@@ -2,13 +2,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 import shutil
 import os
 
-from modules.text_cleaning import clean_text_pipeline
+from modules.text_cleaning import clean_text_pipeline, extract_ingredient_text
 from modules.ingredient_matching import match_tokens_to_db
 from modules.gemini_ai import analyze_ingredients_with_ai
+from modules.expert_system import run_expert_system
 from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image
@@ -16,6 +18,14 @@ from modules.ocr import extract_text_from_image
 API_MONITORING_KEY = os.getenv("MONITORING_API_KEY")
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Make sure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
@@ -34,12 +44,22 @@ class HealthResponse(BaseModel):
 class MetricsSummaryResponse(BaseModel):
     analysis: Dict[str, Any]
     ingredients: Dict[str, Any]
+    entities: Dict[str, Any] = Field(default_factory=dict)
     generated_at: datetime
 
 
 class RecentAnalysisResponse(BaseModel):
     id: int
-    raw_text: str
+    scan_id: Optional[int] = None
+    raw_text: Optional[str] = None
+    summary: Optional[str] = None
+    recommendation: Optional[str] = None
+    status: Optional[str] = None
+    matched_ingredient_count: Optional[int] = None
+    matched_ingredients: Optional[List[str]] = None
+    detail_count: Optional[int] = None
+    user: Optional[Dict[str, Any]] = None
+    product: Optional[Dict[str, Any]] = None
     ai_analysis: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
 
@@ -51,6 +71,21 @@ def root():
 def analyze_ingredients(data: IngredientRequest):
     raw_text = data.text
     return process_text_analysis(raw_text)
+
+
+@app.get("/analysis-history")
+def analysis_history(limit: int = Query(default=10, ge=1, le=100)):
+    db = get_db_connection()
+    return {"items": db.get_recent_analysis_results(limit=limit)}
+
+
+@app.get("/analysis/{analysis_id}")
+def analysis_detail(analysis_id: int):
+    db = get_db_connection()
+    detail = db.get_analysis_detail(analysis_id=analysis_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Analysis data not found")
+    return detail
 
 @app.post("/analyze-image")
 async def analyze_image(file: UploadFile = File(...)):
@@ -80,34 +115,104 @@ async def analyze_image(file: UploadFile = File(...)):
 
 def process_text_analysis(raw_text: str):
     """Helper function to run the NLP/AI pipeline on text."""
-    # 1. Text cleaning
-    cleaned_tokens = clean_text_pipeline(raw_text)
+    # 1. Keep only ingredient-like text for downstream AI and matching
+    ingredient_text = extract_ingredient_text(raw_text)
+
+    # 2. Text cleaning/tokenization
+    cleaned_tokens = clean_text_pipeline(ingredient_text)
     
-    # 2. Persiapkan database connection & data ingredients dari MySQL
+    # 3. Persiapkan database connection & data ingredients dari MySQL
     db = get_db_connection()
     db_ingredients = db.get_all_ingredients()
     
-    # 3. Ingredient matching
+    # 4. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
+
+    # 5. Rule-based expert analysis
+    expert_report = run_expert_system(matched_ingredients)
     
-    # 4. Gemini AI analysis
-    ai_result_text = analyze_ingredients_with_ai(raw_text)
+    # 6. Gemini AI analysis with model fallback + dataset-grounded prompt
+    ai_result_payload = analyze_ingredients_with_ai(
+        text=ingredient_text,
+        ingredient_tokens=cleaned_tokens,
+        matched_ingredients=matched_ingredients,
+        include_metadata=True,
+    )
+
+    if isinstance(ai_result_payload, dict):
+        ai_result_text = str(ai_result_payload.get("text") or "")
+        ai_model_used = ai_result_payload.get("model")
+        ai_models_tried = ai_result_payload.get("models_tried") or []
+    else:
+        ai_result_text = str(ai_result_payload)
+        ai_model_used = None
+        ai_models_tried = []
+
+    summary_text = _build_summary_text(expert_report)
+    recommendation_text = _build_recommendation_text(expert_report, ai_result_text)
 
     # Membentuk dictionary final (JSON Result -> Flutter)
     result_data = {
         "input_text": raw_text,
+        "ingredient_text_used": ingredient_text,
         "cleaned_tokens": cleaned_tokens,
         "matched_ingredients": matched_ingredients,
-        "ai_analysis": ai_result_text
+        "expert_analysis": expert_report,
+        "summary": summary_text,
+        "recommendation": recommendation_text,
+        "ai_analysis": {
+            "model_output": ai_result_text,
+            "model_used": ai_model_used,
+            "models_tried": ai_models_tried,
+        },
     }
 
-    # 5. MySQL Database (Laragon) - Simpan hasil analisis
+    # 7. MySQL Database (Laragon) - Simpan hasil analisis
     # Note: DB schema must align
-    saved_id = db.save_analysis_result(raw_text=raw_text, ai_result=result_data)
+    saved_id = db.save_analysis_result(
+        raw_text=raw_text,
+        ai_result=result_data,
+        matched_ingredients=matched_ingredients,
+        expert_report=expert_report,
+    )
     if saved_id:
         result_data["analysis_id"] = saved_id
 
     return result_data
+
+
+def _build_summary_text(expert_report: Dict[str, Any]) -> str:
+    score = expert_report.get("overall_score", 0)
+    classification = expert_report.get("classification", "Unknown")
+    total_identified = expert_report.get("total_ingredients_identified", 0)
+    warning_count = expert_report.get("warnings_found", 0)
+    return (
+        f"Skor keamanan {score}/100 ({classification}). "
+        f"Bahan dikenali: {total_identified}. Peringatan: {warning_count}."
+    )
+
+
+def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> str:
+    flags = expert_report.get("flags") if isinstance(expert_report, dict) else []
+    if isinstance(flags, list) and flags:
+        first_flag = flags[0] if isinstance(flags[0], dict) else {}
+        ingredient = first_flag.get("ingredient")
+        message = first_flag.get("message")
+        if ingredient and message:
+            return f"Perhatikan ingredient {ingredient}: {message}"
+
+    unknown_count = expert_report.get("total_unknown", 0) if isinstance(expert_report, dict) else 0
+    if isinstance(unknown_count, int) and unknown_count > 0:
+        return (
+            f"Ada {unknown_count} bahan yang belum dikenali. "
+            "Lengkapi master ingredients agar analisis lebih akurat."
+        )
+
+    cleaned_ai = (ai_text or "").strip()
+    if cleaned_ai:
+        return cleaned_ai[:260]
+
+    return "Secara umum formula cukup aman, tetap lakukan patch test sebelum pemakaian rutin."
 
 
 def require_monitoring_api_key(x_api_key: str | None = Header(default=None)):
@@ -150,7 +255,13 @@ def metrics_summary(_: None = Depends(require_monitoring_api_key)):
     db = get_db_connection()
     analysis = db.get_analysis_summary()
     ingredients = db.get_ingredient_summary()
-    return MetricsSummaryResponse(analysis=analysis, ingredients=ingredients, generated_at=_current_timestamp())
+    entities = db.get_entity_summary()
+    return MetricsSummaryResponse(
+        analysis=analysis,
+        ingredients=ingredients,
+        entities=entities,
+        generated_at=_current_timestamp(),
+    )
 
 
 @app.get("/metrics/recent", response_model=List[RecentAnalysisResponse])

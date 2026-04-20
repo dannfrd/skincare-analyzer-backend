@@ -1,6 +1,7 @@
 import pytesseract
 import numpy as np
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,11 @@ class OCRProcessor:
         # --oem 3: Default LSTM OCR Engine
         # --psm N: Page segmentation mode
         self.config = f"--oem 3 --psm {psm_mode}"
+
+        # Optional override for systems where tesseract is not on PATH.
+        tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
         
         # IMPORTANT: Ensure Tesseract is installed on the system.
         # If tesseract is not in PATH (e.g., Windows), you must specify the path here:
