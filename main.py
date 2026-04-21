@@ -3,9 +3,14 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
 from pydantic import BaseModel, Field
 import shutil
 import os
+from jose import jwt, JWTError
+
+SECRET_KEY = os.getenv("SECRET_KEY", "secret")
+ALGORITHM = "HS256"
 
 from modules.text_cleaning import clean_text_pipeline, extract_ingredient_text
 from modules.ingredient_matching import match_tokens_to_db
@@ -14,8 +19,11 @@ from modules.expert_system import run_expert_system
 from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image
+from modules.auth_api import router as auth_router
+from sqlalchemy import text
 
 API_MONITORING_KEY = os.getenv("MONITORING_API_KEY")
+
 
 app = FastAPI()
 
@@ -29,6 +37,55 @@ app.add_middleware(
 
 # Make sure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
+
+
+app.include_router(auth_router)
+
+# model request untuk save history
+class SaveHistoryRequest(BaseModel):
+    analysis_id: int
+
+@app.post("/history/save")
+def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Depends(get_db_connection)):
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_email = payload.get("sub")
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
+
+    with db.engine.connect() as conn:
+        user = conn.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {"email": user_email}
+        ).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user_id = user.id if hasattr(user, 'id') else user[0]
+
+        # Cek apakah analysis_id valid
+
+        analysis = conn.execute(
+            text("SELECT id FROM analyses WHERE id = :analysis_id"),
+            {"analysis_id": request_data.analysis_id}
+        ).fetchone()
+        if not analysis:
+            raise HTTPException(status_code=404, detail="Analysis ID not found in analyses table")
+
+        # Simpan ke tabel user_histories
+        save_query = text("""
+            INSERT INTO user_histories (user_id, analysis_id)
+            VALUES (:user_id, :analysis_id)
+        """)
+        conn.execute(save_query, {"user_id": user_id, "analysis_id": request_data.analysis_id})
+        conn.commit()
+
+    return {"message": "Daftar histori telah berhasil ditambahkan."}
 
 # model request dari Flutter
 class IngredientRequest(BaseModel):
@@ -273,3 +330,32 @@ def metrics_recent(
     records = db.get_recent_analysis_results(limit=limit)
     # FastAPI will coerce dict list into the response model
     return records
+
+@app.get("/history")
+
+def get_user_history(request: Request, db=Depends(get_db_connection)):
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_email = payload.get("sub")
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    with db.engine.connect() as conn:
+        user = conn.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {"email": user_email}
+        ).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        results = conn.execute(
+            text("SELECT * FROM scans WHERE user_id = :user_id ORDER BY created_at DESC"),
+            {"user_id": user.id}
+        ).fetchall()
+        return [dict(row._mapping) for row in results]
