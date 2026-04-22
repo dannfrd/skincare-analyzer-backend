@@ -21,6 +21,18 @@ DB_NAME = os.getenv("DB_NAME", "skincare_analyzer")
 # Connection string menggunakan PyMySQL
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
 
+# Tambahkan fungsi get_db_session untuk FastAPI
+from sqlalchemy.orm import sessionmaker
+
+def get_db_session():
+    engine = create_engine(DATABASE_URL, pool_recycle=3600)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 class DatabaseConnection:
     """
     Handles connection to the MySQL database.
@@ -344,6 +356,7 @@ class DatabaseConnection:
             """
             INSERT INTO users (name, email, password, role, created_at)
             SELECT :name, :email, :password, :role, NOW()
+            FROM DUAL
             WHERE NOT EXISTS (
                 SELECT 1 FROM users WHERE email = :email
             )
