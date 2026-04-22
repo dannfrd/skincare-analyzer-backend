@@ -45,6 +45,21 @@ app.include_router(auth_router)
 class SaveHistoryRequest(BaseModel):
     analysis_id: int
 
+
+def _resolve_history_risk_level(risk_levels_csv: str | None) -> str:
+    """Map ingredient risk distribution to UI-friendly badge values."""
+    if not risk_levels_csv:
+        return "safe"
+
+    normalized = [part.strip().lower() for part in str(risk_levels_csv).split(",") if part and part.strip()]
+    if any(level in {"high", "tinggi"} for level in normalized):
+        return "high"
+    if any(level in {"medium", "moderate", "sedang"} for level in normalized):
+        return "moderate"
+    if any(level in {"low", "rendah"} for level in normalized):
+        return "safe"
+    return "safe"
+
 @app.post("/history/save")
 def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Depends(get_db_connection)):
     auth_header = request.headers.get("authorization")
@@ -76,6 +91,18 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
         ).fetchone()
         if not analysis:
             raise HTTPException(status_code=404, detail="Analysis ID not found in analyses table")
+
+        # Hindari duplikasi save untuk analysis yang sama
+        existing = conn.execute(
+            text("""
+                SELECT id FROM user_histories
+                WHERE user_id = :user_id AND analysis_id = :analysis_id
+                LIMIT 1
+            """),
+            {"user_id": user_id, "analysis_id": request_data.analysis_id}
+        ).fetchone()
+        if existing:
+            return {"message": "Analisis sudah ada di histori."}
 
         # Simpan ke tabel user_histories
         save_query = text("""
@@ -354,8 +381,71 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        user_id = user.id if hasattr(user, 'id') else user[0]
+
+        # History diambil dari user_histories karena tombol "Simpan Hasil" menyimpan analysis_id ke tabel ini.
         results = conn.execute(
-            text("SELECT * FROM scans WHERE user_id = :user_id ORDER BY created_at DESC"),
-            {"user_id": user.id}
-        ).fetchall()
-        return [dict(row._mapping) for row in results]
+            text("""
+                SELECT
+                    uh.id AS history_id,
+                    uh.viewed_at,
+                    a.id AS analysis_id,
+                    a.summary,
+                    a.recommendation,
+                    a.status,
+                    a.created_at AS analysis_created_at,
+                    s.id AS scan_id,
+                    p.id AS product_id,
+                    p.name AS product_name,
+                    p.brand AS product_brand,
+                    GROUP_CONCAT(DISTINCT i.risk_level ORDER BY i.risk_level SEPARATOR ',') AS risk_levels
+                FROM user_histories uh
+                INNER JOIN analyses a ON a.id = uh.analysis_id
+                LEFT JOIN scans s ON s.id = a.scan_id
+                LEFT JOIN products p ON p.id = s.product_id
+                LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                WHERE uh.user_id = :user_id
+                GROUP BY
+                    uh.id,
+                    uh.viewed_at,
+                    a.id,
+                    a.summary,
+                    a.recommendation,
+                    a.status,
+                    a.created_at,
+                    s.id,
+                    p.id,
+                    p.name,
+                    p.brand
+                ORDER BY COALESCE(uh.viewed_at, a.created_at) DESC
+            """),
+            {"user_id": user_id}
+        ).mappings().all()
+
+        payload: List[Dict[str, Any]] = []
+        for row in results:
+            created_at = row.get("viewed_at") or row.get("analysis_created_at")
+            risk_level = _resolve_history_risk_level(row.get("risk_levels"))
+
+            payload.append({
+                "id": row.get("history_id"),
+                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+                "analysis_id": row.get("analysis_id"),
+                "product": {
+                    "id": row.get("product_id"),
+                    "name": row.get("product_name") or f"Analysis #{row.get('analysis_id')}",
+                    "brand": row.get("product_brand") or "No Brand",
+                },
+                "analyses": [
+                    {
+                        "id": row.get("analysis_id"),
+                        "summary": row.get("summary"),
+                        "recommendation": row.get("recommendation"),
+                        "status": row.get("status"),
+                        "risk_level": risk_level,
+                    }
+                ],
+            })
+
+        return payload

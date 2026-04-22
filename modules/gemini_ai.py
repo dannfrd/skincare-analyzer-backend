@@ -1,8 +1,16 @@
 import os
 import threading
+import warnings
+import importlib
 from typing import Any, Dict, List
 from dotenv import load_dotenv
-from google import genai
+
+try:
+    from google import genai as google_genai_sdk
+except ImportError:
+    google_genai_sdk = None
+
+google_legacy_genai_sdk = None
 
 from modules.rag_context import build_rag_context
 
@@ -12,7 +20,43 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
 
-client = genai.Client(api_key=API_KEY) if API_KEY else None
+
+def _load_legacy_sdk():
+    global google_legacy_genai_sdk
+    if google_legacy_genai_sdk is not None:
+        return google_legacy_genai_sdk
+
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, module=r"google\.generativeai")
+            google_legacy_genai_sdk = importlib.import_module("google.generativeai")
+        return google_legacy_genai_sdk
+    except ImportError:
+        return None
+
+if API_KEY and google_genai_sdk is not None:
+    client = google_genai_sdk.Client(api_key=API_KEY)
+    GEMINI_SDK_MODE = "google-genai"
+elif API_KEY:
+    legacy_sdk = _load_legacy_sdk()
+    if legacy_sdk is not None:
+        legacy_sdk.configure(api_key=API_KEY)
+        client = None
+        GEMINI_SDK_MODE = "google-generativeai"
+    else:
+        client = None
+        GEMINI_SDK_MODE = "unavailable"
+else:
+    client = None
+    GEMINI_SDK_MODE = "unavailable"
+
+
+def _extract_response_text(response: Any) -> str:
+    try:
+        text = getattr(response, "text", "")
+    except Exception:
+        text = ""
+    return (text or "").strip() if isinstance(text, str) else ""
 
 
 def _model_candidates() -> List[str]:
@@ -160,11 +204,17 @@ def _call_gemini(prompt: str) -> Dict[str, Any]:
 
     for model in _model_candidates():
         try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-            )
-            text = (response.text or "").strip()
+            if GEMINI_SDK_MODE == "google-genai":
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+            elif GEMINI_SDK_MODE == "google-generativeai":
+                response = google_legacy_genai_sdk.GenerativeModel(model_name=model).generate_content(prompt)
+            else:
+                raise RuntimeError("SDK Gemini tidak tersedia. Install google-genai atau google-generativeai.")
+
+            text = _extract_response_text(response)
             if text:
                 return {
                     "text": text,
@@ -198,8 +248,11 @@ def analyze_ingredients_with_ai(
     if not cleaned_text and not cleaned_tokens:
         return "Teks kosong. Analisis AI dilewati."
 
-    if client is None:
+    if not API_KEY:
         return "Analisis AI dilewati karena GEMINI_API_KEY belum dikonfigurasi."
+
+    if GEMINI_SDK_MODE == "unavailable":
+        return "Analisis AI dilewati karena dependency Gemini belum terpasang (google-genai/google-generativeai)."
 
     prompt = _build_prompt(
         text=cleaned_text,
