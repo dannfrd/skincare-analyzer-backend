@@ -1,4 +1,20 @@
-﻿# Skincare Analyzer Backend (FastAPI)
+﻿## Notifikasi FCM (Firebase Cloud Messaging)
+
+Untuk mengirim notifikasi ke semua user mobile:
+
+```
+from modules.fcm_notification import send_notification_to_all
+
+# Contoh pengiriman notifikasi
+send_notification_to_all(
+	title="Update Aplikasi!",
+	body="Ada fitur baru, yuk update aplikasi kamu!",
+	data={"type": "update", "url": "https://playstore.link"}
+)
+```
+
+Pastikan aplikasi mobile subscribe ke topic 'all'.
+# Skincare Analyzer Backend (FastAPI)
 
 Backend ini menerima teks/gambar ingredient dari Flutter, melakukan OCR + cleaning + matching ingredient + AI analysis, lalu menyimpan hasil ke MySQL.
 
