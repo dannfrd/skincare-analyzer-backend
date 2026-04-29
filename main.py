@@ -45,6 +45,21 @@ app.include_router(auth_router)
 class SaveHistoryRequest(BaseModel):
     analysis_id: int
 
+
+def _resolve_history_risk_level(risk_levels_csv: str | None) -> str:
+    """Map ingredient risk distribution to UI-friendly badge values."""
+    if not risk_levels_csv:
+        return "safe"
+
+    normalized = [part.strip().lower() for part in str(risk_levels_csv).split(",") if part and part.strip()]
+    if any(level in {"high", "tinggi"} for level in normalized):
+        return "high"
+    if any(level in {"medium", "moderate", "sedang"} for level in normalized):
+        return "moderate"
+    if any(level in {"low", "rendah"} for level in normalized):
+        return "safe"
+    return "safe"
+
 @app.post("/history/save")
 def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Depends(get_db_connection)):
     auth_header = request.headers.get("authorization")
@@ -76,6 +91,18 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
         ).fetchone()
         if not analysis:
             raise HTTPException(status_code=404, detail="Analysis ID not found in analyses table")
+
+        # Hindari duplikasi save untuk analysis yang sama
+        existing = conn.execute(
+            text("""
+                SELECT id FROM user_histories
+                WHERE user_id = :user_id AND analysis_id = :analysis_id
+                LIMIT 1
+            """),
+            {"user_id": user_id, "analysis_id": request_data.analysis_id}
+        ).fetchone()
+        if existing:
+            return {"message": "Analisis sudah ada di histori."}
 
         # Simpan ke tabel user_histories
         save_query = text("""
@@ -330,32 +357,3 @@ def metrics_recent(
     records = db.get_recent_analysis_results(limit=limit)
     # FastAPI will coerce dict list into the response model
     return records
-
-@app.get("/history")
-
-def get_user_history(request: Request, db=Depends(get_db_connection)):
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    token = auth_header.split(" ")[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_email = payload.get("sub")
-        if not user_email:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    with db.engine.connect() as conn:
-        user = conn.execute(
-            text("SELECT id FROM users WHERE email = :email"),
-            {"email": user_email}
-        ).fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        results = conn.execute(
-            text("SELECT * FROM scans WHERE user_id = :user_id ORDER BY created_at DESC"),
-            {"user_id": user.id}
-        ).fetchall()
-        return [dict(row._mapping) for row in results]
