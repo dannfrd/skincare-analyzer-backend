@@ -147,6 +147,61 @@ class RecentAnalysisResponse(BaseModel):
     ai_analysis: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
 
+
+class UserSummaryResponse(BaseModel):
+    id: int
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    provider: Optional[str] = None
+    analysis_count: int = 0
+    last_analysis_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class ProductSummaryResponse(BaseModel):
+    id: int
+    name: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    barcode: Optional[str] = None
+    scan_count: int = 0
+    analysis_count: int = 0
+    created_at: Optional[str] = None
+
+
+class IngredientSummaryResponse(BaseModel):
+    id: int
+    name: Optional[str] = None
+    function: Optional[str] = None
+    risk_level: Optional[str] = None
+    usage_count: int = 0
+    created_at: Optional[str] = None
+
+
+class AnalysisDetailSummaryResponse(BaseModel):
+    id: int
+    analysis_id: Optional[int] = None
+    ingredient_id: Optional[int] = None
+    ingredient_name: Optional[str] = None
+    ingredient_risk_level: Optional[str] = None
+    function: Optional[str] = None
+    benefit: Optional[str] = None
+    risk: Optional[str] = None
+    analysis_status: Optional[str] = None
+    analysis_created_at: Optional[str] = None
+
+
+class UserHistorySummaryResponse(BaseModel):
+    id: int
+    user_id: Optional[int] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    analysis_id: Optional[int] = None
+    analysis_status: Optional[str] = None
+    analysis_created_at: Optional[str] = None
+    viewed_at: Optional[str] = None
+
 @app.get("/")
 def root():
     return {"message": "Skincare Analyzer Backend Running"}

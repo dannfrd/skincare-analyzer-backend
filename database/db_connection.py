@@ -909,6 +909,398 @@ class DatabaseConnection:
 
         return summary
 
+    def get_users(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Returns a list of users with basic activity metrics."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 500))
+
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return []
+
+                has_scans = self._table_exists(conn, "scans")
+                has_analyses = self._table_exists(conn, "analyses")
+
+                if has_scans and has_analyses:
+                    query = text(
+                        """
+                        SELECT
+                            u.id,
+                            u.name,
+                            u.email,
+                            u.role,
+                            u.provider,
+                            u.created_at,
+                            COUNT(DISTINCT a.id) AS analysis_count,
+                            MAX(a.created_at) AS last_analysis_at
+                        FROM users u
+                        LEFT JOIN scans s ON s.user_id = u.id
+                        LEFT JOIN analyses a ON a.scan_id = s.id
+                        GROUP BY
+                            u.id,
+                            u.name,
+                            u.email,
+                            u.role,
+                            u.provider,
+                            u.created_at
+                        ORDER BY u.created_at DESC
+                        LIMIT :limit
+                        """
+                    )
+
+                    rows = conn.execute(query, {"limit": limit}).mappings().all()
+
+                    return [
+                        {
+                            "id": row.get("id"),
+                            "name": row.get("name"),
+                            "email": row.get("email"),
+                            "role": row.get("role"),
+                            "provider": row.get("provider"),
+                            "analysis_count": row.get("analysis_count") or 0,
+                            "last_analysis_at": self._to_iso_datetime(row.get("last_analysis_at")),
+                            "created_at": self._to_iso_datetime(row.get("created_at")),
+                        }
+                        for row in rows
+                    ]
+
+                query = text(
+                    """
+                    SELECT id, name, email, role, provider, created_at
+                    FROM users
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                    """
+                )
+                rows = conn.execute(query, {"limit": limit}).mappings().all()
+
+                return [
+                    {
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "email": row.get("email"),
+                        "role": row.get("role"),
+                        "provider": row.get("provider"),
+                        "analysis_count": 0,
+                        "last_analysis_at": None,
+                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Error fetching user list: {e}")
+            return []
+
+    def get_analyses(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Returns a list of analyses with related user and product context."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 500))
+
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "analyses"):
+                    return []
+
+                query = text(
+                    """
+                    SELECT
+                        a.id,
+                        a.scan_id,
+                        a.summary,
+                        a.recommendation,
+                        a.status,
+                        a.created_at,
+                        s.extracted_text,
+                        u.id AS user_id,
+                        u.name AS user_name,
+                        u.email AS user_email,
+                        p.id AS product_id,
+                        p.name AS product_name,
+                        p.brand AS product_brand,
+                        p.category AS product_category,
+                        COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
+                        GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients,
+                        COUNT(DISTINCT ad.id) AS detail_count
+                    FROM analyses a
+                    LEFT JOIN scans s ON s.id = a.scan_id
+                    LEFT JOIN users u ON u.id = s.user_id
+                    LEFT JOIN products p ON p.id = s.product_id
+                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                    LEFT JOIN analysis_details ad ON ad.analysis_id = a.id
+                    GROUP BY
+                        a.id,
+                        a.scan_id,
+                        a.summary,
+                        a.recommendation,
+                        a.status,
+                        a.created_at,
+                        s.extracted_text,
+                        u.id,
+                        u.name,
+                        u.email,
+                        p.id,
+                        p.name,
+                        p.brand,
+                        p.category
+                    ORDER BY a.created_at DESC
+                    LIMIT :limit
+                    """
+                )
+
+                records: List[Dict[str, Any]] = []
+                for row in conn.execute(query, {"limit": limit}).mappings():
+                    raw_matched = row.get("matched_ingredients") or ""
+                    matched_ingredients = [
+                        item.strip() for item in str(raw_matched).split(",") if item and item.strip()
+                    ]
+
+                    records.append({
+                        "id": row.get("id"),
+                        "scan_id": row.get("scan_id"),
+                        "raw_text": row.get("extracted_text"),
+                        "summary": row.get("summary"),
+                        "recommendation": row.get("recommendation"),
+                        "status": row.get("status"),
+                        "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
+                        "matched_ingredients": matched_ingredients,
+                        "detail_count": row.get("detail_count") or 0,
+                        "user": {
+                            "id": row.get("user_id"),
+                            "name": row.get("user_name"),
+                            "email": row.get("user_email"),
+                        } if row.get("user_id") else None,
+                        "product": {
+                            "id": row.get("product_id"),
+                            "name": row.get("product_name"),
+                            "brand": row.get("product_brand"),
+                            "category": row.get("product_category"),
+                        } if row.get("product_id") else None,
+                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                    })
+
+                return records
+        except Exception as e:
+            logger.error(f"Error fetching analyses list: {e}")
+            return []
+
+    def get_analysis_details(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Returns detail rows per analysis and ingredient."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 500))
+
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "analysis_details"):
+                    return []
+
+                query = text(
+                    """
+                    SELECT
+                        ad.id,
+                        ad.analysis_id,
+                        ad.ingredient_id,
+                        ad.`function` AS analysis_function,
+                        ad.benefit,
+                        ad.risk,
+                        a.status AS analysis_status,
+                        a.created_at AS analysis_created_at,
+                        i.name AS ingredient_name,
+                        i.risk_level AS ingredient_risk_level
+                    FROM analysis_details ad
+                    LEFT JOIN analyses a ON a.id = ad.analysis_id
+                    LEFT JOIN ingredients i ON i.id = ad.ingredient_id
+                    ORDER BY ad.id DESC
+                    LIMIT :limit
+                    """
+                )
+
+                rows = conn.execute(query, {"limit": limit}).mappings().all()
+
+                return [
+                    {
+                        "id": row.get("id"),
+                        "analysis_id": row.get("analysis_id"),
+                        "ingredient_id": row.get("ingredient_id"),
+                        "ingredient_name": row.get("ingredient_name"),
+                        "ingredient_risk_level": row.get("ingredient_risk_level"),
+                        "function": row.get("analysis_function"),
+                        "benefit": row.get("benefit"),
+                        "risk": row.get("risk"),
+                        "analysis_status": row.get("analysis_status"),
+                        "analysis_created_at": self._to_iso_datetime(row.get("analysis_created_at")),
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Error fetching analysis details list: {e}")
+            return []
+
+    def get_products(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Returns products with usage counts."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 500))
+
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "products"):
+                    return []
+
+                query = text(
+                    """
+                    SELECT
+                        p.id,
+                        p.name,
+                        p.brand,
+                        p.category,
+                        p.barcode,
+                        p.created_at,
+                        COUNT(DISTINCT s.id) AS scan_count,
+                        COUNT(DISTINCT a.id) AS analysis_count
+                    FROM products p
+                    LEFT JOIN scans s ON s.product_id = p.id
+                    LEFT JOIN analyses a ON a.scan_id = s.id
+                    GROUP BY
+                        p.id,
+                        p.name,
+                        p.brand,
+                        p.category,
+                        p.barcode,
+                        p.created_at
+                    ORDER BY p.created_at DESC
+                    LIMIT :limit
+                    """
+                )
+
+                rows = conn.execute(query, {"limit": limit}).mappings().all()
+
+                return [
+                    {
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "brand": row.get("brand"),
+                        "category": row.get("category"),
+                        "barcode": row.get("barcode"),
+                        "scan_count": row.get("scan_count") or 0,
+                        "analysis_count": row.get("analysis_count") or 0,
+                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Error fetching products list: {e}")
+            return []
+
+    def get_ingredients(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Returns ingredient list with usage metrics."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 500))
+
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "ingredients"):
+                    return []
+
+                query = text(
+                    """
+                    SELECT
+                        i.id,
+                        i.name,
+                        i.`function` AS ingredient_function,
+                        i.risk_level,
+                        i.created_at,
+                        COUNT(DISTINCT si.id) AS usage_count
+                    FROM ingredients i
+                    LEFT JOIN scan_ingredients si ON si.ingredient_id = i.id
+                    GROUP BY
+                        i.id,
+                        i.name,
+                        i.`function`,
+                        i.risk_level,
+                        i.created_at
+                    ORDER BY i.created_at DESC
+                    LIMIT :limit
+                    """
+                )
+
+                rows = conn.execute(query, {"limit": limit}).mappings().all()
+
+                return [
+                    {
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "function": row.get("ingredient_function"),
+                        "risk_level": row.get("risk_level"),
+                        "usage_count": row.get("usage_count") or 0,
+                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Error fetching ingredients list: {e}")
+            return []
+
+    def get_user_histories(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Returns user history rows with analysis info."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 500))
+
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "user_histories"):
+                    return []
+
+                query = text(
+                    """
+                    SELECT
+                        uh.id,
+                        uh.user_id,
+                        uh.analysis_id,
+                        uh.viewed_at,
+                        u.name AS user_name,
+                        u.email AS user_email,
+                        a.status AS analysis_status,
+                        a.created_at AS analysis_created_at
+                    FROM user_histories uh
+                    LEFT JOIN users u ON u.id = uh.user_id
+                    LEFT JOIN analyses a ON a.id = uh.analysis_id
+                    ORDER BY uh.viewed_at DESC
+                    LIMIT :limit
+                    """
+                )
+
+                rows = conn.execute(query, {"limit": limit}).mappings().all()
+
+                return [
+                    {
+                        "id": row.get("id"),
+                        "user_id": row.get("user_id"),
+                        "user_name": row.get("user_name"),
+                        "user_email": row.get("user_email"),
+                        "analysis_id": row.get("analysis_id"),
+                        "analysis_status": row.get("analysis_status"),
+                        "analysis_created_at": self._to_iso_datetime(row.get("analysis_created_at")),
+                        "viewed_at": self._to_iso_datetime(row.get("viewed_at")),
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Error fetching user histories list: {e}")
+            return []
+
 # Helper untuk mendapatkan instance dari koneksi database
 def get_db_connection() -> DatabaseConnection:
     return DatabaseConnection()
