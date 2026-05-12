@@ -1,0 +1,748 @@
+ingredient_name,function1,function2,warning1,warning2,ingredient_origin,ingredient_charge
+"1,2-Hexanediol", Solvent , Preservative Booster,,,Synthetic,Non-ionik
+"2,3-Butanediol", Humectant , Solvent,,,Synthetic,Non-ionik
+2-Aminobutanol, pH Adjuster ,,Irritant,,Synthetic,Kationik
+2-Methylpropanediol, Solvent , Humectant,,,Synthetic,Non-ionik
+2-O-Ethyl Ascorbic Acid, Antioxidant , Brightening,,,Synthetic,Non-ionik
+3-O-Ethyl Ascorbic Acid, Antioxidant , Brightening,,,Synthetic,Non-ionik
+Abies Sibirica Oil, Fragrance , Emollient,Allergen,,Natural,Non-ionik
+Acacia Senegal Gum, Thickener , Emulsion Stabilizer,,,Natural,Anionik
+Acetyl Dipeptide-1 Cetyl Ester, Cell-Communicating Ingredient , Soothing,,,Synthetic,Non-ionik
+Acetyl Glucosamine, Skin Conditioning , Brightening,,,Natural Derivative,Non-ionik
+Acetyl Glutamine, Skin Conditioning , Humectant,,,Natural Derivative,Non-ionik
+Acetyl Heptapeptide-4, Cell-Communicating Ingredient ,,,,Synthetic,Non-ionik
+Acetyl Hexapeptide-8, Cell-Communicating Ingredient ,,,,Synthetic,Non-ionik
+Acetyl Octapeptide-3, Cell-Communicating Ingredient ,,,,Synthetic,Non-ionik
+Acetyl Tetrapeptide-11, Skin Conditioning , Firming,,,Synthetic,Non-ionik
+Acetyl Tetrapeptide-2, Cell-Communicating Ingredient ,,,,Synthetic,Non-ionik
+Acetyl Tetrapeptide-5, Cell-Communicating Ingredient , De-puffing,,,Synthetic,Non-ionik
+Acetyl Tyrosine, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Acmella Oleracea Extract, Skin Conditioning , Instant Smoothing,,,Natural,Non-ionik
+Acrylates Copolymer, Film Forming ,,,,Synthetic,Anionik
+Acrylates/C10-30 Alkyl Acrylate Crosspolymer, Thickener , Emulsion Stabilizer,,,Synthetic,Anionik
+Acrylic Acid/Acrylamidomethyl Propane Sulfonic Acid Copolymer, Thickener , Emulsion Stabilizer,,,Synthetic,Anionik
+Actinidia Chinensis (Kiwi) Fruit Extract, Emollient , Skin Conditioning,Allergen,,Natural,Non-ionik
+Adenosine, Cell-Communicating Ingredient ,,,,Natural Derivative,Non-ionik
+Agar, Thickener ,,,,Natural,Non-ionik
+Alanine, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Alanine/Histidine/Lysine Polypeptide Copper Hcl, Skin Conditioning ,,,,Synthetic,Kationik
+Alcohol, Solvent , Astringent,Drying,Irritant,Natural Derivative,Non-ionik
+Alcohol Denat, Solvent , Astringent,Drying,Irritant,Synthetic,Non-ionik
+Allantoin, Soothing , Skin Conditioning,,,Natural Derivative,Non-ionik
+Almond Oil/Polyglyceryl-10 Esters, Emulsifier , Emollient,,,Natural Derivative,Non-ionik
+Aloe Barbadensis Flower Extract, Skin Conditioning , Antioxidant,Allergen,,Natural,Non-ionik
+Aloe Barbadensis Leaf Extract, Soothing , Skin Conditioning,Allergen,,Natural,Non-ionik
+Alpha-Arbutin, Brightening ,,,,Natural Derivative,Non-ionik
+Aluminum Chlorohydrate, Astringent ,,Controversial,Irritant,Synthetic,Kationik
+Aluminum/Magnesium Hydroxide Stearate, Thickener , Opacifying,,,Synthetic,Non-ionik
+Amaranthus Caudatus Seed Extract, Skin Conditioning , Emollient,,,Natural,Non-ionik
+Amber Powder, Abrasive ,,,,Natural,Non-ionik
+Aminomethyl Propanol, pH Adjuster ,,Irritant,,Synthetic,Kationik
+Aminopropyl Ascorbyl Phosphate, Antioxidant , Brightening,,,Synthetic,Non-ionik
+Ammonium Acryloyldimethyltaurate/Beheneth-25 Methacrylate Crosspolymer, Thickener , Emulsion Stabilizer,,,Synthetic,Anionik
+Ammonium Acryloyldimethyltaurate/Vp Copolymer, Thickener , Film Forming,,,Synthetic,Anionik
+Amylopectin, Thickener ,,,,Natural,Non-ionik
+Anemarrhena Asphodeloides Root Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Angelica Keiskei Extract, Skin Conditioning , Antioxidant,Fotosensitizing,,Natural,Non-ionik
+Anhydroxylitol, Humectant ,,,,Natural Derivative,Non-ionik
+Anthemis Nobilis Flower Extract, Soothing , Skin Conditioning,Allergen,,Natural,Non-ionik
+Anthemis Nobilis Flower Oil, Fragrance , Soothing,Allergen,,Natural,Non-ionik
+Aqua (Water), Solvent ,,,,Natural,Non-ionik
+Arachidyl Alcohol, Thickener , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Arachidyl Glucoside, Emulsifier ,,,,Natural Derivative,Non-ionik
+Arachis Hypogaea (Peanut) Oil, Emollient , Occlusive,Allergen,,Natural,Non-ionik
+Arbutin, Brightening ,,,,Natural Derivative,Non-ionik
+Arginine, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Arisaema Amurense Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Artemisia Capillaris Leaf Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Artemisia Princeps Leaf Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Artemisia Vulgaris (Mugwort) Oil, Fragrance , Skin Conditioning,Allergen,,Natural,Non-ionik
+Ascorbic Acid, Antioxidant , Brightening,Irritant,,Synthetic,Non-ionik
+Ascorbyl Glucoside, Antioxidant , Brightening,,,Synthetic,Non-ionik
+Ascorbyl Palmitate, Antioxidant , Emollient,,,Synthetic,Non-ionik
+Ascorbyl Tetraisopalmitate, Antioxidant , Emollient,,,Synthetic,Non-ionik
+Asiatic Acid, Skin Conditioning ,,,,Natural,Non-ionik
+Asiaticoside, Skin Conditioning ,,,,Natural,Non-ionik
+Aspartic Acid, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Astragalus Membranaceus Root Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Avena Sativa (Oat) Kernel Extract, Soothing , Skin Conditioning,,,Natural,Non-ionik
+Avena Sativa (Oat) Kernel Flour, Abrasive , Thickener,,,Natural,Non-ionik
+Bacillus Ferment, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Bacillus/Soybean Ferment Extract, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Bambusa Vulgaris Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Beeswax, Occlusive , Thickener,Comedogenic,,Natural,Non-ionik
+Behenyl Alcohol, Thickener , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Bellis Perennis (Daisy) Flower Extract, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Bentonite, Thickener ,,Drying,,Natural,Anionik
+Benzalkonium Chloride, Preservative ,,Irritant,Allergen,Synthetic,Kationik
+Benzyl Glycol, Solvent , Preservative Booster,Irritant,,Synthetic,Non-ionik
+Beta-Carotene, Colorant , Antioxidant,,,Natural Derivative,Non-ionik
+Beta-Glucan, Humectant , Soothing,,,Natural Derivative,Non-ionik
+Betaine, Humectant ,,,,Natural Derivative,Amfoterik
+Betaine Salicylate, Exfoliant ,,Exfoliating,Irritant,Synthetic,Non-ionik
+Bht, Antioxidant ,,Controversial,,Synthetic,Non-ionik
+Bifida Ferment Filtrate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Bifida Ferment Lysate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Biotin, Skin Conditioning ,,,,Synthetic,Non-ionik
+"Bis-Ethoxydiglycol Cyclohexane 1,4-Dicarboxylate", Solvent ,,,,Synthetic,Non-ionik
+Bis-Ethylhexyloxyphenol Methoxyphenyl Triazine, UV Filter ,,,,Synthetic,Non-ionik
+Bis-PEG-12 Dimethicone, Emulsifier , Solubilizer,,,Synthetic,Non-ionik
+Bis-PEG-18 Methyl Ether Dimethyl Silane, Solvent ,,,,Synthetic,Non-ionik
+Bisabolol, Soothing ,,,,Natural Derivative,Non-ionik
+Borago Officinalis Seed Oil, Emollient ,,,,Natural,Non-ionik
+Brassica Campestris (Rapeseed) Sterols, Emollient , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Brassica Campestris Sprout Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Brassica Oleracea Capitata (Cabbage) Leaf Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Brassica Oleracea Italica (Broccoli) Sprout Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Brassica Rapa (Turnip) Leaf Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Bromelain, Enzyme , Exfoliant,Exfoliating,Irritant,Natural,Non-ionik
+Buteth-3, Solvent , Solubilizer,,,Synthetic,Non-ionik
+Butylene Glycol, Solvent , Humectant,,,Synthetic,Non-ionik
+C12-13 Alketh-9, Emulsifier , Solubilizer,,,Synthetic,Non-ionik
+C12-13 Pareth-9, Emulsifier , Solubilizer,,,Synthetic,Non-ionik
+C12-14 Alketh-12, Emulsifier , Solubilizer,,,Synthetic,Non-ionik
+C12-14 Pareth-12, Emulsifier , Solubilizer,,,Synthetic,Non-ionik
+C12-15 Alkyl Lactate, Emollient , Solvent,,,Natural Derivative,Non-ionik
+C12-20 Alkyl Glucoside, Emulsifier , Cleansing Agent,,,Natural Derivative,Non-ionik
+C13-14 Isoparaffin, Emollient , Solvent,,,Synthetic,Non-ionik
+C14-22 Alcohols, Thickener , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Caesalpinia Spinosa Fruit Pod Extract, Thickener ,,,,Natural,Non-ionik
+Caffeine, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Calcium Gluconate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Calcium Pantothenate, Skin Conditioning ,,,,Synthetic,Non-ionik
+Calendula Officinalis Flower Extract, Soothing , Antioxidant,Allergen,,Natural,Non-ionik
+Camellia Japonica Seed Oil, Emollient ,,,,Natural,Non-ionik
+Camellia Sinensis (Green Tea) Leaf Extract, Antioxidant , Skin Conditioning,,,Natural,Non-ionik
+Camellia Sinensis Leaf Powder, Abrasive ,,,,Natural,Non-ionik
+Camellia Sinensis Leaf Water, Skin Conditioning , Solvent,,,Natural,Non-ionik
+Camellia Sinensis Seed Oil, Emollient ,,,,Natural,Non-ionik
+Candelilla/Jojoba/Rice Bran Polyglyceryl-3 Esters, Emulsifier ,,,,Natural Derivative,Non-ionik
+Caprylhydroxamic Acid, Preservative ,,,,Synthetic,Non-ionik
+Caprylic/Capric Glycerides Polyglyceryl-10 Esters, Emulsifier ,,,,Natural Derivative,Non-ionik
+Caprylic/Capric Triglyceride, Emollient ,,Comedogenic,,Natural Derivative,Non-ionik
+Capryloyl Salicylic Acid, Exfoliant ,,Exfoliating,Irritant,Synthetic,Non-ionik
+Caprylyl Glycol, Humectant , Preservative Booster,,,Natural Derivative,Non-ionik
+Caprylyl Methicone, Emollient ,,,,Synthetic,Non-ionik
+Caprylyl/Capryl Glucoside, Cleansing Agent , Solubilizer,,,Natural Derivative,Non-ionik
+Capsicum Frutescens Fruit Extract, Skin Conditioning ,,Irritant,,Natural,Non-ionik
+Caramel, Colorant ,,,,Natural Derivative,Non-ionik
+Carbomer, Thickener , Emulsion Stabilizer,,,Synthetic,Anionik
+Carthamus Tinctorius (Safflower) Seed Oil, Emollient ,,,,Natural,Non-ionik
+Castoryl Maleate, Emollient ,,,,Natural Derivative,Non-ionik
+Cellulose, Thickener ,,,,Natural,Non-ionik
+Cellulose Gum, Thickener ,,,,Natural Derivative,Anionik
+Centella Asiatica Extract, Soothing , Skin Conditioning,Allergen,,Natural,Non-ionik
+Centella Asiatica Leaf Extract, Soothing , Skin Conditioning,Allergen,,Natural,Non-ionik
+Centella Asiatica Leaf Vesicles, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Centella Asiatica Leaf Water, Skin Conditioning , Solvent,Allergen,,Natural,Non-ionik
+Centella Asiatica Leaf/Stem Extract, Soothing , Skin Conditioning,Allergen,,Natural,Non-ionik
+Centella Asiatica Root Extract, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Ceramide Ap, Skin Conditioning ,,,,Synthetic,Non-ionik
+Ceramide As, Skin Conditioning ,,,,Synthetic,Non-ionik
+Ceramide Eop, Skin Conditioning ,,,,Synthetic,Non-ionik
+Ceramide Np, Skin Conditioning ,,,,Synthetic,Non-ionik
+Ceramide Ns, Skin Conditioning ,,,,Synthetic,Non-ionik
+Cetearyl Alcohol, Thickener , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Cetearyl Dimethicone, Emollient ,,,,Synthetic,Non-ionik
+Cetearyl Olivate, Emulsifier , Emollient,,,Natural Derivative,Non-ionik
+Cetyl Alcohol, Thickener , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Cetyl Ethylhexanoate, Emollient ,,Comedogenic,,Synthetic,Non-ionik
+Cetyl Hydroxyethylcellulose, Thickener ,,,,Natural Derivative,Non-ionik
+Cetyl-Pg Hydroxyethyl Palmitamide, Skin Conditioning ,,,,Synthetic,Non-ionik
+Chamaecyparis Obtusa Water, Skin Conditioning ,,,,Natural,Non-ionik
+Chamomilla Recutita (Matricaria) Flower Extract, Soothing , Skin Conditioning,Allergen,,Natural,Non-ionik
+Chamomilla Recutita (Matricaria) Flower Oil, Fragrance , Soothing,Allergen,,Natural,Non-ionik
+Chlorella Vulgaris Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Chlorphenesin, Preservative ,,,,Synthetic,Non-ionik
+Cholesterol, Skin Conditioning , Emollient,,,Natural Derivative,Non-ionik
+Ci 14720, Colorant ,,,,Synthetic,Non-ionik
+Ci 15985 (Yellow 6), Colorant ,,,,Synthetic,Non-ionik
+Ci 16035 (Red 40), Colorant ,,,,Synthetic,Non-ionik
+Ci 16255, Colorant ,,,,Synthetic,Non-ionik
+Ci 17200 (Red 33), Colorant ,,,,Synthetic,Non-ionik
+Ci 18965, Colorant ,,,,Synthetic,Non-ionik
+Ci 19140, Colorant ,,,,Synthetic,Non-ionik
+Ci 19140 (Yellow 5), Colorant ,,,,Synthetic,Non-ionik
+Ci 42090, Colorant ,,,,Synthetic,Non-ionik
+Ci 61570 (Green 5), Colorant ,,,,Synthetic,Non-ionik
+Ci 77266 (Black 2), Colorant ,,,,Synthetic,Non-ionik
+Ci 77288 (Chromium Oxide Green), Colorant ,,,,Natural,Non-ionik
+Ci 77492 (Iron Oxides Yellow), Colorant ,,,,Natural,Non-ionik
+Ci 77891 (Titanium Dioxide), Colorant , UV Filter,,,Natural,Non-ionik
+Citral, Fragrance ,,Allergen,Irritant,Natural Derivative,Non-ionik
+Citric Acid, pH Adjuster , Chelating Agent,Irritant,,Natural Derivative,Anionik
+Citronellol, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Citrullus Vulgaris (Watermelon) Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Citrus Aurantium Bergamia (Bergamot) Fruit Oil, Fragrance ,,Fototoxic,Allergen,Natural,Non-ionik
+Citrus Aurantium Bergamia (Bergamot) Leaf Extract, Fragrance , Antioxidant,Fototoxic,Allergen,Natural,Non-ionik
+Citrus Aurantium Dulcis (Orange) Peel Oil, Fragrance ,,Fototoxic,Allergen,Natural,Non-ionik
+Citrus Paradisi (Grapefruit) Peel Oil, Fragrance ,,Fototoxic,Allergen,Natural,Non-ionik
+Citrus Reticulata (Tangerine) Fruit Extract, Skin Conditioning , Antioxidant,Allergen,,Natural,Non-ionik
+Citrus Reticulata (Tangerine) Peel Extract, Skin Conditioning , Antioxidant,Allergen,Fototoxic,Natural,Non-ionik
+Citrus Unshiu Peel Powder, Abrasive ,,,,Natural,Non-ionik
+Cladosiphon Okamuranus Extract, Thickener ,,,,Natural,Non-ionik
+Cocamide Dea, Foam Booster , Viscosity Modifier,Controversial,,Natural Derivative,Non-ionik
+Cocamidopropyl Betaine, Cleansing Agent , Foam Booster,Allergen,,Natural Derivative,Amfoterik
+Cocamidopropyl Dimethylamine, Hair Conditioning ,,,,Natural Derivative,Kationik
+Cocamidopropyl Hydroxysultaine, Cleansing Agent ,,,,Natural Derivative,Amfoterik
+Cocamidopropyl Pg-Dimonium Chloride Phosphate, Hair Conditioning ,,,,Synthetic,Kationik
+Coccinia Indica Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Coco-Betaine, Cleansing Agent ,,,,Natural Derivative,Amfoterik
+Coco-Caprylate/Caprate, Emollient ,,,,Natural Derivative,Non-ionik
+Coco-Glucoside, Cleansing Agent , Emollient,,,Natural Derivative,Non-ionik
+Coffea Arabica (Coffee) Seed Extract, Antioxidant , Skin Conditioning,,,Natural,Non-ionik
+Collagen Amino Acids, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Collagen Extract, Film Forming , Skin Conditioning,,,Natural Derivative,Amfoterik
+Collagen Water, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Copper Tripeptide-1, Cell-Communicating Ingredient ,,,,Synthetic,Non-ionik
+Coptis Japonica Root Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Corallina Officinalis Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Corchorus Olitorius Leaf Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Coriandrum Sativum (Coriander) Extract, Skin Conditioning , Antioxidant,Allergen,,Natural,Non-ionik
+Crocus Sativus Flower Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Cryptomeria Japonica Leaf Extract, Fragrance ,,,,Natural,Non-ionik
+Cucumis Melo (Melon) Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Curcuma Longa (Turmeric) Root Extract, Antioxidant , Colorant,Staining,,Natural,Non-ionik
+Cyanocobalamin, Colorant ,,,,Synthetic,Non-ionik
+Cyclodextrin, Solubilizer ,,,,Natural Derivative,Non-ionik
+Cyclohexasiloxane, Emollient , Solvent,,,Synthetic,Non-ionik
+Cyclopentasiloxane, Emollient , Solvent,,,Synthetic,Non-ionik
+Cymbopogon Citratus Leaf Oil, Fragrance ,,Allergen,Irritant,Natural,Non-ionik
+Cynara Scolymus (Artichoke) Leaf Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Cyperus Rotundus Root Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Cysteine, Skin Conditioning ,,,,Natural Derivative,Amfoterik
+Daucus Carota Sativa (Carrot) Root Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Decyl Glucoside, Cleansing Agent ,,,,Natural Derivative,Non-ionik
+Defatted Rice Bran, Skin Conditioning ,,,,Natural,Non-ionik
+Defatted Rice Bran Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Deoxyphytantriyl Palmitamide Mea, Emollient ,,,,Synthetic,Kationik
+Dextrin, Thickener ,,,,Natural Derivative,Non-ionik
+Dibutyl Adipate, Emollient , Solvent,,,Synthetic,Non-ionik
+Diethoxyethyl Succinate, Emollient , Solvent,,,Synthetic,Non-ionik
+Diethylamino Hydroxybenzoyl Hexyl Benzoate, UV Filter ,,,,Synthetic,Non-ionik
+Diethylhexyl Syringylidenemalonate, Antioxidant ,,,,Synthetic,Anionik
+Diglucosyl Gallic Acid, Antioxidant ,,,,Synthetic,Non-ionik
+Diglycerin, Humectant ,,,,Natural Derivative,Non-ionik
+Dihydroxypropyl Arginine Hcl, Hair Conditioning ,,,,Synthetic,Kationik
+Diisopropyl Adipate, Emollient , Solvent,,,Synthetic,Non-ionik
+Dimethicone, Emollient , Occlusive,,,Synthetic,Non-ionik
+Dimethicone/Vinyl Dimethicone Crosspolymer, Thickener ,,,,Synthetic,Non-ionik
+Dimethiconol, Emollient , Occlusive,,,Synthetic,Non-ionik
+Dimethyl Isosorbide, Solvent ,,,,Synthetic,Non-ionik
+Dimethylmethoxy Chromanol, Antioxidant ,,,,Synthetic,Non-ionik
+Dimethylsilanol Hyaluronate, Humectant ,,,,Synthetic,Non-ionik
+Dioscorea Japonica Root Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Dipeptide Diaminobutyroyl Benzylamide Diacetate, Cell-Communicating Ingredient ,,,,Synthetic,Kationik
+Diphenyl Dimethicone, Emollient ,,,,Synthetic,Non-ionik
+Diphenylsiloxy Phenyl Trimethicone, Emollient ,,,,Synthetic,Non-ionik
+Dipotassium Glycyrrhizate, Soothing , Skin Conditioning,,,Natural Derivative,Anionik
+Dipropylene Glycol, Solvent , Humectant,,,Synthetic,Non-ionik
+Disiloxane, Emollient , Solvent,,,Synthetic,Non-ionik
+Disodium Cocoyl Glutamate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Disodium Edta, Chelating Agent ,,,,Synthetic,Anionik
+Disodium Phosphate, pH Adjuster ,,,,Synthetic,Anionik
+Ecklonia Cava Extract, Antioxidant , Skin Conditioning,,,Natural,Non-ionik
+Ectoin, Skin Conditioning ,,,,Synthetic,Amfoterik
+Elaeis Guineensis (Palm) Oil, Emollient ,,Comedogenic,,Natural,Non-ionik
+Eriobotrya Japonica Leaf Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Erythritol, Humectant ,,,,Natural Derivative,Non-ionik
+Ethanol, Solvent , Astringent,Drying,Irritant,Natural Derivative,Non-ionik
+Ethyl Ascorbic Acid, Antioxidant , Brightening,,,Synthetic,Non-ionik
+Ethyl Ascorbyl Ether, Antioxidant , Brightening,,,Synthetic,Non-ionik
+Ethyl Hexanediol, Solvent , Preservative Booster,,,Synthetic,Non-ionik
+Ethyl Menthane Carboxamide, Cooling Agent ,,,,Synthetic,Non-ionik
+Ethylhexyl Methoxycinnamate, UV Filter ,,Controversial,Allergen,Synthetic,Non-ionik
+Ethylhexyl Salicylate, UV Filter ,,,,Synthetic,Non-ionik
+Ethylhexylglycerin, Preservative Booster , Humectant,,,Natural Derivative,Non-ionik
+Eucalyptus Globulus Leaf Extract, Fragrance ,,Allergen,Irritant,Natural,Non-ionik
+Farnesol, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Ferulic Acid, Antioxidant ,,,,Natural Derivative,Non-ionik
+Ficus Carica (Fig) Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Folic Acid, Skin Conditioning ,,,,Synthetic,Non-ionik
+Fomes Officinalis (Mushroom) Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Fructan, Humectant ,,,,Natural Derivative,Non-ionik
+Fructooligosaccharides, Humectant ,,,,Natural Derivative,Non-ionik
+Fructose, Humectant ,,,,Natural Derivative,Non-ionik
+Galactomyces Ferment Filtrate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Gardenia Florida Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Gaultheria Procumbens (Wintergreen) Leaf Extract, Fragrance ,,Allergen,Irritant,Natural,Non-ionik
+Gentiana Scabra Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Geraniol, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Gluconolactone, Exfoliant , Chelating Agent,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Glucose, Humectant ,,,,Natural Derivative,Non-ionik
+Glutamic Acid, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Glutathione, Antioxidant ,,,,Natural Derivative,Amfoterik
+Glycereth-25 Pca Isostearate, Emollient ,,,,Synthetic,Non-ionik
+Glycereth-26, Humectant , Solvent,,,Synthetic,Non-ionik
+Glycerin, Humectant ,,,,Natural Derivative,Non-ionik
+Glyceryl Acrylate/Acrylic Acid Copolymer, Film Forming , Humectant,,,Synthetic,Anionik
+Glyceryl Caprylate, Emollient , Preservative Booster,,,Natural Derivative,Non-ionik
+Glyceryl Glucoside, Humectant ,,,,Natural Derivative,Non-ionik
+Glyceryl Oleate, Emollient , Emulsifier,Comedogenic,,Natural Derivative,Non-ionik
+Glyceryl Polymethacrylate, Film Forming ,,,,Synthetic,Non-ionik
+Glyceryl Stearate, Emulsifier , Emulsion Stabilizer,Comedogenic,,Natural Derivative,Non-ionik
+Glyceryl Stearate Citrate, Emulsifier ,,,,Natural Derivative,Anionik
+Glyceryl Stearate Se, Emulsifier , Emulsion Stabilizer,Comedogenic,,Natural Derivative,Non-ionik
+Glycine, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Glycine Soja (Soybean) Oil, Emollient ,,Comedogenic,Allergen,Natural,Non-ionik
+Glycine Soja (Soybean) Seed Extract, Skin Conditioning , Antioxidant,Allergen,,Natural,Non-ionik
+Glycine Soja (Soybean) Sterols, Emollient , Emulsion Stabilizer,,,Natural Derivative,Non-ionik
+Glycol Distearate, Opacifying , Emollient,,,Natural Derivative,Non-ionik
+Glycolic Acid, Exfoliant ,,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Glycolipids, Emollient ,,,,Natural Derivative,Non-ionik
+Glycoproteins, Skin Conditioning ,,,,Natural Derivative,Amfoterik
+Glycosphingolipids, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Glycosyl Trehalose, Humectant ,,,,Natural Derivative,Non-ionik
+Glycyrrhiza Glabra (Licorice) Root Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Glycyrrhiza Uralensis (Licorice) Root Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Glyoxal, Preservative ,,Irritant,Allergen,Synthetic,Non-ionik
+Haematococcus Pluvialis Extract, Antioxidant , Colorant,,,Natural,Non-ionik
+Hamamelis Virginiana (Witch Hazel) Extract, Astringent , Skin Conditioning,Drying,Irritant,Natural,Non-ionik
+Hamamelis Virginiana (Witch Hazel) Leaf Extract, Astringent , Soothing,Drying,Irritant,Natural,Non-ionik
+Hamamelis Virginiana Leaf Water, Astringent , Solvent,Drying,Irritant,Natural,Non-ionik
+Hectorite, Rheology Modifier ,,,,Natural,Anionik
+Hedera Helix (Ivy) Leaf/Stem Extract, Soothing ,,Irritant,,Natural,Non-ionik
+Helianthus Annuus (Sunflower) Seed Oil, Emollient ,,,,Natural,Non-ionik
+Helianthus Annuus (Sunflower) Sprout Extract, Antioxidant ,,,,Natural,Non-ionik
+Helianthus Annuus Sprout Extract, Antioxidant ,,,,Natural,Non-ionik
+Hexadecene, Emollient , Solvent,,,Synthetic,Non-ionik
+Hexapeptide-11, Skin Conditioning ,,,,Synthetic,Non-ionik
+Hexapeptide-12, Skin Conditioning ,,,,Synthetic,Non-ionik
+Hexapeptide-2, Skin Conditioning ,,,,Synthetic,Non-ionik
+Hexapeptide-67 Palmitate, Skin Conditioning ,,,,Synthetic,Non-ionik
+Hexapeptide-9, Skin Conditioning ,,,,Synthetic,Non-ionik
+Hexyl Cinnamal, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Hexyl Laurate, Emollient ,,,,Natural Derivative,Non-ionik
+Hibiscus Esculentus Fruit Extract, Film Forming ,,,,Natural,Non-ionik
+Hippophae Rhamnoides (Sea Buckthorn) Fruit Oil, Emollient , Antioxidant,Staining,,Natural,Non-ionik
+Histidine, Humectant ,,,,Natural Derivative,Amfoterik
+Hordeum Vulgare Extract, Soothing ,,,,Natural,Non-ionik
+Houttuynia Cordata Extract, Soothing , Antioxidant,,,Natural,Non-ionik
+Hyaluronic Acid, Humectant ,,,,Natural Derivative,Anionik
+Hydrated Silica, Abrasive ,,,,Natural,Non-ionik
+Hydrogenated Lecithin, Emollient , Emulsifier,,,Natural Derivative,Amfoterik
+Hydrogenated Palm Acid, Consistency Agent ,,,,Natural Derivative,Anionik
+Hydrogenated Palm Glycerides Citrate, Emulsifier ,,,,Natural Derivative,Anionik
+Hydrogenated Poly(C6-14 Olefin), Emollient ,,,,Synthetic,Non-ionik
+Hydrogenated Polyisobutene, Emollient ,,,,Synthetic,Non-ionik
+Hydrogenated Starch Hydrolysate, Humectant ,,,,Natural Derivative,Non-ionik
+Hydrolyzed Algae Extract, Humectant ,,,,Natural Derivative,Amfoterik
+Hydrolyzed Algin, Rheology Modifier ,,,,Natural Derivative,Anionik
+Hydrolyzed Collagen, Humectant ,,,,Natural Derivative,Amfoterik
+Hydrolyzed Elastin, Humectant ,,,,Natural Derivative,Amfoterik
+Hydrolyzed Gardenia Florida Extract, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Hydrolyzed Ginseng Saponins, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Hydrolyzed Glycosaminoglycans, Humectant ,,,,Natural Derivative,Anionik
+Hydrolyzed Hyaluronic Acid, Humectant ,,,,Natural Derivative,Anionik
+Hydrolyzed Malt Extract, Humectant ,,,,Natural Derivative,Non-ionik
+Hydrolyzed Rice Protein, Film Forming ,,,,Natural Derivative,Amfoterik
+Hydrolyzed Sclerotium Gum, Rheology Modifier , Humectant,,,Natural Derivative,Non-ionik
+Hydrolyzed Silk, Film Forming , Humectant,,,Natural Derivative,Amfoterik
+Hydrolyzed Sodium Hyaluronate, Humectant ,,,,Natural Derivative,Anionik
+Hydrolyzed Soybean Extract, Skin Conditioning ,,Allergen,,Natural Derivative,Amfoterik
+Hydrolyzed Sponge, Exfoliating ,,,,Natural Derivative,Non-ionik
+Hydrolyzed Vegetable Protein, Humectant ,,Allergen,,Natural Derivative,Amfoterik
+Hydrolyzed Viola Tricolor Extract, Soothing ,,,,Natural Derivative,Non-ionik
+Hydroxyacetophenone, Antioxidant , Preservative Booster,,,Synthetic,Non-ionik
+Hydroxyethyl Acrylate/Sodium Acryloyldimethyl Taurate Copolymer, Rheology Modifier , Emulsion Stabilizer,,,Synthetic,Anionik
+Hydroxyethyl Urea, Humectant ,,,,Synthetic,Non-ionik
+Hydroxyethylcellulose, Rheology Modifier ,,,,Natural Derivative,Non-ionik
+Hydroxylated Lanolin, Emollient ,,Allergen,,Natural Derivative,Non-ionik
+Hydroxyphenyl Propamidobenzoic Acid, Soothing ,,,,Synthetic,Non-ionik
+Hydroxypropyl Cyclodextrin, Solubilizer ,,,,Natural Derivative,Non-ionik
+Hydroxypropyl Starch Phosphate, Rheology Modifier ,,,,Natural Derivative,Anionik
+Hydroxypropyl Tetrahydropyrantriol, Skin Conditioning ,,,,Synthetic,Non-ionik
+Hydroxypropyltrimonium Chloride, Hair Conditioning ,,,,Synthetic,Kationik
+Hydroxypropyltrimonium Hyaluronate, Humectant , Hair Conditioning,,,Synthetic,Kationik
+Hypochlorous Acid, Preservative ,,Irritant,,Synthetic,Non-ionik
+Illicium Verum (Anise) Fruit Extract, Fragrance ,,Allergen,,Natural,Non-ionik
+Imidazolidinyl Urea, Preservative ,,Allergen,,Synthetic,Non-ionik
+Iris Florentina Root Extract, Fragrance ,,Allergen,,Natural,Non-ionik
+Isododecane, Solvent ,,,,Synthetic,Non-ionik
+Isoleucine, Humectant ,,,,Natural Derivative,Amfoterik
+Isopentyldiol, Humectant , Solvent,,,Synthetic,Non-ionik
+Jojoba Esters, Emollient ,,,,Natural Derivative,Non-ionik
+Juniperus Mexicana Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Juniperus Virginiana Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Kaolin, Absorbent ,,Drying,,Natural,Anionik
+Kojic Acid, Skin Brightening ,,Irritant,,Natural Derivative,Non-ionik
+Lactic Acid, pH Adjuster ,,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Lactobacillus Ferment, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Lactobacillus Ferment Lysate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Lactobacillus/Soymilk Ferment Filtrate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Lactobionic Acid, Humectant ,,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Lactococcus Ferment Lysate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Laminaria Digitata Extract, Rheology Modifier ,,,,Natural,Non-ionik
+Laurdimonium Hydroxypropyl Hydrolyzed Wheat Protein, Hair Conditioning ,,,,Natural Derivative,Kationik
+Laureth-3, Solubilizer ,,,,Synthetic,Non-ionik
+Laureth-7, Solubilizer ,,,,Synthetic,Non-ionik
+Lauric Acid, Cleansing Agent ,,Comedogenic,Irritant,Natural Derivative,Non-ionik
+Lauryl Glucoside, Cleansing Agent ,,,,Natural Derivative,Non-ionik
+Lauryl Hydroxysultaine, Cleansing Agent ,,,,Natural Derivative,Amfoterik
+Lavandula Angustifolia (Lavender) Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Lavandula Angustifolia Water, Fragrance ,,Allergen,,Natural,Non-ionik
+Lavandula Hybrida Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Lecithin, Emollient , Emulsifier,Allergen,,Natural Derivative,Amfoterik
+Leucine, Humectant ,,,,Natural Derivative,Amfoterik
+Lilium Candidum Bulb Extract, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Lilium Tigrinum Bulb Extract, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Limonene, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Linalool, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Linoleamidopropyl Pg-Dimonium Chloride Phosphate, Hair Conditioning ,,,,Synthetic,Kationik
+Lycium Chinense Fruit Extract, Antioxidant ,,,,Natural,Non-ionik
+Lysine, Humectant ,,,,Natural Derivative,Amfoterik
+Lysine Hcl, Humectant ,,,,Natural Derivative,Kationik
+Macadamia Ternifolia Seed Oil, Emollient ,,,,Natural,Non-ionik
+Madecassic Acid, Soothing ,,,,Natural,Non-ionik
+Madecassoside, Soothing ,,,,Natural,Non-ionik
+Magnesium Ascorbyl Phosphate, Antioxidant ,,,,Synthetic,Anionik
+Magnesium Chloride, Viscosity Control ,,,,Natural,Non-ionik
+Magnesium Lactate, Humectant ,,,,Natural Derivative,Non-ionik
+Malic Acid, pH Adjuster ,,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Malt Extract, Humectant ,,,,Natural Derivative,Non-ionik
+Maltodextrin, Film Forming ,,,,Natural Derivative,Non-ionik
+Maltooligosyl Glucoside, Humectant ,,,,Natural Derivative,Non-ionik
+Maltose, Humectant ,,,,Natural Derivative,Non-ionik
+Malus Domestica Fruit Cell Culture Extract, Antioxidant ,,,,Natural,Non-ionik
+Malus Domestica Fruit Extract, Antioxidant ,,,,Natural,Non-ionik
+Mandelic Acid, Exfoliant ,,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Mangifera Indica (Mango) Fruit Extract, Antioxidant ,,Allergen,,Natural,Non-ionik
+Mannitol, Humectant ,,,,Natural Derivative,Non-ionik
+Maris Aqua (Sea Water), Solvent ,,Drying,,Natural,Non-ionik
+Mel (Honey) Extract, Humectant ,,Allergen,,Natural,Non-ionik
+Melaleuca Alternifolia (Tea Tree) Leaf Extract, Antimicrobial ,,Allergen,Irritant,Natural,Non-ionik
+Melaleuca Alternifolia (Tea Tree) Leaf Oil, Fragrance , Antimicrobial,Allergen,Irritant,Natural,Non-ionik
+Melaleuca Alternifolia (Tea Tree) Leaf Water, Solvent ,,Allergen,Irritant,Natural,Non-ionik
+Melanin, Colorant ,,,,Natural Derivative,Non-ionik
+Melia Azadirachta Flower Extract, Antioxidant ,,,,Natural,Non-ionik
+Melia Azadirachta Leaf Extract, Antioxidant ,,,,Natural,Non-ionik
+Melissa Officinalis Leaf Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Mentha Piperita (Peppermint) Oil, Fragrance , Cooling,Allergen,Irritant,Natural,Non-ionik
+Mentha Viridis (Spearmint) Extract, Fragrance ,,Allergen,Irritant,Natural,Non-ionik
+Menthyl Lactate, Cooling Agent ,,,,Synthetic,Non-ionik
+Methionine, Humectant ,,,,Natural Derivative,Amfoterik
+Methoxy PEG-114/Poly(Epsilon-Caprolactone), Emulsifier ,,,,Synthetic,Non-ionik
+Methyl Diisopropyl Propionamide, Cooling Agent ,,,,Synthetic,Non-ionik
+Methyl Gluceth-10, Humectant ,,,,Synthetic,Non-ionik
+Methyl Gluceth-20, Humectant ,,,,Synthetic,Non-ionik
+Methyl Glucose Sesquistearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Methyl Trimethicone, Emollient ,,,,Synthetic,Non-ionik
+Methylchloroisothiazolinone, Preservative ,,Allergen,Irritant,Synthetic,Non-ionik
+Methylisothiazolinone, Preservative ,,Allergen,Irritant,Synthetic,Non-ionik
+Methylpropanediol, Solvent , Humectant,,,Synthetic,Non-ionik
+Mica, Colorant ,,,,Natural,Non-ionik
+Microcrystalline Cellulose, Rheology Modifier ,,,,Natural Derivative,Non-ionik
+Milk Protein Extract, Film Forming ,,Allergen,,Natural Derivative,Amfoterik
+Morinda Citrifolia Flower Extract, Antioxidant ,,,,Natural,Non-ionik
+Morinda Citrifolia Leaf Extract, Antioxidant ,,,,Natural,Non-ionik
+Moringa Oleifera Seed Oil, Emollient ,,,,Natural,Non-ionik
+Morus Alba Leaf Extract, Antioxidant ,,,,Natural,Non-ionik
+Morus Alba Root Extract, Skin Brightening ,,,,Natural,Non-ionik
+Myrciaria Dubia Fruit Extract, Antioxidant ,,,,Natural,Non-ionik
+Myristic Acid, Cleansing Agent ,,Comedogenic,Irritant,Natural Derivative,Non-ionik
+Myristoyl Pentapeptide-17, Hair Conditioning ,,,,Synthetic,Non-ionik
+Myristyl Glucoside, Cleansing Agent ,,,,Natural Derivative,Non-ionik
+Nelumbo Nucifera Flower Extract, Antioxidant ,,,,Natural,Non-ionik
+Nelumbo Nucifera Germ Extract, Antioxidant ,,,,Natural,Non-ionik
+Nelumbo Nucifera Leaf Extract, Antioxidant ,,,,Natural,Non-ionik
+Nelumbo Nucifera Root Extract, Antioxidant ,,,,Natural,Non-ionik
+Nephrite Powder, Abrasive ,,,,Natural,Non-ionik
+Niacinamide, Skin Conditioning ,,,,Synthetic,Non-ionik
+Nicotinoyl Dipeptide-22, Skin Conditioning ,,,,Synthetic,Non-ionik
+Nicotinoyl Dipeptide-23, Skin Conditioning ,,,,Synthetic,Non-ionik
+Nicotinoyl Dipeptide-24, Skin Conditioning ,,,,Synthetic,Non-ionik
+Nicotinoyl Tripeptide-1, Skin Conditioning ,,,,Synthetic,Non-ionik
+Nonapeptide-1, Skin Brightening ,,,,Synthetic,Non-ionik
+Nymphaea Alba Flower Extract, Soothing ,,,,Natural,Non-ionik
+O-Cymen-5-Ol, Preservative ,,,,Synthetic,Non-ionik
+Ocimum Sanctum Leaf Extract, Antioxidant ,,,,Natural,Non-ionik
+Octapeptide-2, Skin Conditioning ,,,,Synthetic,Non-ionik
+Octyldodeceth-16, Emulsifier , Solubilizer,,,Synthetic,Non-ionik
+Oenothera Biennis (Evening Primrose) Flower Extract, Antioxidant ,,,,Natural,Non-ionik
+Olea Europaea (Olive) Fruit Oil, Emollient ,,Comedogenic,,Natural,Non-ionik
+Olea Europaea (Olive) Leaf Extract, Antioxidant ,,,,Natural,Non-ionik
+Oleic Acid, Emollient ,,Comedogenic,,Natural Derivative,Non-ionik
+Oligopeptide-1, Skin Conditioning ,,,,Synthetic,Non-ionik
+Oligopeptide-2, Skin Conditioning ,,,,Synthetic,Non-ionik
+Oligopeptide-3, Skin Conditioning ,,,,Synthetic,Non-ionik
+Oryza Sativa (Rice) Bran Extract, Antioxidant ,,,,Natural,Non-ionik
+Oryza Sativa (Rice) Bran Oil, Emollient ,,,,Natural,Non-ionik
+Oryza Sativa (Rice) Bran Water, Solvent ,,,,Natural,Non-ionik
+Oryza Sativa (Rice) Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Oryza Sativa (Rice) Seed Protein, Film Forming ,,,,Natural Derivative,Amfoterik
+PEG-100 Stearate, Emulsifier ,,,,Synthetic,Non-ionik
+PEG-12 Dimethicone Crosspolymer, Rheology Modifier ,,,,Synthetic,Non-ionik
+PEG-150, Rheology Modifier ,,,,Synthetic,Non-ionik
+PEG-40 Hydrogenated Castor Oil, Solubilizer ,,,,Synthetic,Non-ionik
+PEG-40 Stearate, Emulsifier ,,,,Synthetic,Non-ionik
+PEG-400, Solvent , Humectant,,,Synthetic,Non-ionik
+PEG-60 Hydrogenated Castor Oil, Solubilizer ,,,,Synthetic,Non-ionik
+PEG-8, Solvent , Humectant,,,Synthetic,Non-ionik
+PEG-80 Sorbitan Laurate, Emulsifier ,,,,Synthetic,Non-ionik
+PEG-90M, Rheology Modifier ,,,,Synthetic,Non-ionik
+PEG/PPG-14/7 Dimethyl Ether, Solvent , Humectant,,,Synthetic,Non-ionik
+PEG/PPG-17/6 Copolymer, Solvent , Humectant,,,Synthetic,Non-ionik
+PEG/PPG/Polybutylene Glycol-8/5/3 Glycerin, Humectant ,,,,Synthetic,Non-ionik
+PPG-13-Decyltetradeceth-24, Emulsifier ,,,,Synthetic,Non-ionik
+PPG-26-Buteth-26, Solvent , Humectant,,,Synthetic,Non-ionik
+Pachyrhizus Erosus Root Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Paeonia Lactiflora Root Extract, Antioxidant ,,,,Natural,Non-ionik
+Paeonia Suffruticosa Root Extract, Antioxidant ,,,,Natural,Non-ionik
+Palmitic Acid, Emulsifier ,,Comedogenic,,Natural Derivative,Non-ionik
+Palmitoyl Grape Seed Extract, Antioxidant ,,,,Natural Derivative,Non-ionik
+Palmitoyl Oligopeptide, Skin Conditioning ,,,,Synthetic,Non-ionik
+Palmitoyl Pentapeptide-4, Skin Conditioning ,,,,Synthetic,Non-ionik
+Palmitoyl Tetrapeptide-7, Skin Conditioning ,,,,Synthetic,Non-ionik
+Palmitoyl Tripeptide-1, Skin Conditioning ,,,,Synthetic,Non-ionik
+Palmitoyl Tripeptide-5, Skin Conditioning ,,,,Synthetic,Non-ionik
+Panax Ginseng Flower Extract, Antioxidant ,,,,Natural,Non-ionik
+Panax Ginseng Leaf/Stem Extract, Antioxidant ,,,,Natural,Non-ionik
+Panax Ginseng Root Extract, Antioxidant ,,,,Natural,Non-ionik
+Panax Ginseng Root Water, Solvent ,,,,Natural,Non-ionik
+Panax Ginseng Seed Oil, Emollient ,,,,Natural,Non-ionik
+Panthenol, Humectant , Soothing,,,Synthetic,Non-ionik
+Pantothenic Acid, Skin Conditioning ,,,,Synthetic,Non-ionik
+Papain, Enzymatic Exfoliant ,,Exfoliating,Irritant,Natural,Non-ionik
+Parfum, Fragrance ,,Allergen,Sensitizer,Synthetic,Non-ionik
+Pelargonium Graveolens Flower Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Pentaerythrityl Tetra-Di-T-Butyl Hydroxyhydrocinnamate, Antioxidant ,,,,Synthetic,Non-ionik
+Pentaerythrityl Tetraethylhexanoate, Emollient ,,,,Synthetic,Non-ionik
+Pentapeptide-13, Skin Conditioning ,,,,Synthetic,Non-ionik
+Pentylene Glycol, Humectant , Solvent,,,Synthetic,Non-ionik
+Persea Gratissima (Avocado) Oil, Emollient ,,Comedogenic,,Natural,Non-ionik
+Phellinus Linteus Extract, Antioxidant ,,,,Natural,Non-ionik
+Phenethyl Alcohol, Preservative , Fragrance,Allergen,,Synthetic,Non-ionik
+Phenoxyethanol, Preservative ,,,,Synthetic,Non-ionik
+Phenyl Trimethicone, Emollient ,,,,Synthetic,Non-ionik
+Phenylalanine, Humectant ,,,,Natural Derivative,Amfoterik
+Phenylethyl Resorcinol, Skin Brightening , Antioxidant,,,Synthetic,Non-ionik
+Phosphatidylcholine, Emulsifier , Emollient,,,Natural Derivative,Amfoterik
+Phytic Acid, Chelating Agent , Antioxidant,,,Natural Derivative,Anionik
+Phytosphingosine, Skin Conditioning ,,,,Natural Derivative,Amfoterik
+Phytosterols, Emollient ,,,,Natural Derivative,Non-ionik
+Phytosteryl/Octyldodecyl Lauroyl Glutamate, Emollient ,,,,Natural Derivative,Anionik
+Pinus Densiflora Leaf Extract, Fragrance ,,,,Natural,Non-ionik
+Pinus Palustris Leaf Extract, Fragrance ,,,,Natural,Non-ionik
+Pinus Sylvestris Bud Extract, Fragrance ,,,,Natural,Non-ionik
+Pogostemon Cablin Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Polyacrylamide, Rheology Modifier ,,,,Synthetic,Non-ionik
+Polyacrylate Crosspolymer-6, Rheology Modifier ,,,,Synthetic,Anionik
+Polyacrylate-13, Rheology Modifier ,,,,Synthetic,Anionik
+Polyglutamic Acid, Humectant ,,,,Natural Derivative,Anionik
+Polyglycerin-10, Humectant ,,,,Natural Derivative,Non-ionik
+Polyglycerin-3, Humectant ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-10 Laurate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-10 Myristate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-10 Oleate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-10 Stearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-3 Distearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-3 Methylglucose Distearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-4 Laurate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-4 Punicate, Emollient ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-6 Distearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polyglyceryl-6 Laurate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Polygonatum Odoratum Rhizome Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Polyisobutene, Emollient ,,,,Synthetic,Non-ionik
+Polymethyl Methacrylate, Texture Enhancer ,,,,Synthetic,Non-ionik
+Polyquaternium-10, Hair Conditioning ,,,,Synthetic,Kationik
+Polyquaternium-112, Hair Fixative ,,,,Synthetic,Kationik
+Polyquaternium-51, Skin Conditioning ,,,,Synthetic,Kationik
+Polyquaternium-67, Hair Fixative ,,,,Synthetic,Kationik
+Polyquaternium-7, Hair Conditioning ,,,,Synthetic,Kationik
+Polysorbate 20, Solubilizer ,,,,Synthetic,Non-ionik
+Polysorbate 60, Emulsifier ,,,,Synthetic,Non-ionik
+Polysorbate 80, Emulsifier ,,,,Synthetic,Non-ionik
+Portulaca Oleracea Extract, Soothing ,,,,Natural,Non-ionik
+Potassium Benzoate, Preservative ,,,,Synthetic,Anionik
+Potassium Cetyl Phosphate, Emulsifier ,,,,Natural Derivative,Anionik
+Potassium Chloride, Viscosity Control ,,,,Natural,Non-ionik
+Potassium Cocoate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Potassium Cocoyl Glutamate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Potassium Cocoyl Glycinate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Potassium Hyaluronate, Humectant ,,,,Natural Derivative,Anionik
+Potassium Hydroxide, pH Adjuster ,,Irritant,,Synthetic,Non-ionik
+Potassium Lactate, Humectant ,,,,Natural Derivative,Non-ionik
+Potassium Phosphate, Buffering Agent ,,,,Synthetic,Anionik
+Potassium Sorbate, Preservative ,,,,Synthetic,Anionik
+Potentilla Anserina Extract, Soothing ,,,,Natural,Non-ionik
+Proline, Humectant ,,,,Natural Derivative,Amfoterik
+Propanediol, Humectant , Solvent,,,Synthetic,Non-ionik
+Propylene Glycol, Humectant , Solvent,,,Synthetic,Non-ionik
+Protease, Enzymatic Exfoliant ,,Exfoliating,Irritant,Natural,Non-ionik
+Prunus Amygdalus Dulcis (Sweet Almond) Oil, Emollient ,,Allergen,,Natural,Non-ionik
+Prunus Mume Fruit Water, Solvent ,,,,Natural,Non-ionik
+Prunus Persica (Peach) Flower Extract, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Prunus Persica (Peach) Fruit Extract, Skin Conditioning ,,Allergen,,Natural,Non-ionik
+Pueraria Lobata Root Extract, Antioxidant ,,,,Natural,Non-ionik
+Pullulan, Film Forming ,,,,Natural Derivative,Non-ionik
+Pvm/Ma Copolymer, Film Forming ,,,,Synthetic,Anionik
+Pyridoxine, Skin Conditioning ,,,,Synthetic,Non-ionik
+Pyridoxine Hcl, Skin Conditioning ,,,,Synthetic,Kationik
+Pyrus Communis (Pear) Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Pyrus Malus (Apple) Fruit Water, Solvent ,,,,Natural,Non-ionik
+Pyrus Malus (Apple) Juice, Solvent ,,,,Natural,Non-ionik
+Quaternium-73, Antimicrobial ,,,,Synthetic,Kationik
+Quillaja Saponaria Bark Extract, Cleansing Agent ,,,,Natural,Non-ionik
+Raphanus Sativus (Radish) Seed Extract, Preservative ,,,,Natural,Non-ionik
+Raspberry Ketone, Fragrance ,,,,Natural Derivative,Non-ionik
+Rehmannia Glutinosa Root Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Retinal, Skin Conditioning ,,Irritant,Fotosensitizing,Synthetic,Non-ionik
+Retinol, Skin Conditioning ,,Irritant,Fotosensitizing,Synthetic,Non-ionik
+Retinyl Acetate, Skin Conditioning ,,Irritant,Fotosensitizing,Synthetic,Non-ionik
+Retinyl Palmitate, Skin Conditioning , Antioxidant,Irritant,Fotosensitizing,Synthetic,Non-ionik
+Riboflavin, Colorant ,,,,Synthetic,Non-ionik
+Rice Amino Acids, Humectant ,,,,Natural Derivative,Amfoterik
+Rosa Damascena Flower Water, Fragrance , Solvent,Allergen,,Natural,Non-ionik
+Rosmarinus Officinalis (Rosemary) Extract, Antioxidant ,,Allergen,,Natural,Non-ionik
+Rosmarinus Officinalis (Rosemary) Leaf Oil, Fragrance , Antioxidant,Allergen,,Natural,Non-ionik
+Rubus Idaeus (Raspberry) Fruit Extract, Antioxidant ,,,,Natural,Non-ionik
+Saccharide Hydrolysate, Humectant ,,,,Natural Derivative,Non-ionik
+Saccharide Isomerate, Humectant ,,,,Natural Derivative,Non-ionik
+Saccharomyces Ferment, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Saccharomyces Ferment Filtrate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Saccharomyces/Rice Ferment Filtrate, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Saccharum Officinarum Extract, Humectant ,,,,Natural,Non-ionik
+Salicylic Acid, Exfoliant ,,Exfoliating,Irritant,Natural Derivative,Non-ionik
+Salix Alba (Willow) Bark Extract, Exfoliant ,,,,Natural,Non-ionik
+Salix Alba (Willow) Bark Water, Solvent ,,,,Natural,Non-ionik
+Salix Nigra (Willow) Bark Extract, Exfoliant ,,,,Natural,Non-ionik
+Salvia Hispanica Seed Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Salvia Sclarea (Clary) Oil, Fragrance ,,Allergen,,Natural,Non-ionik
+Saxifraga Sarmentosa Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Sclareolide, Fragrance ,,Allergen,,Natural Derivative,Non-ionik
+Scutellaria Alpina Flower/Leaf/Stem Extract, Antioxidant ,,,,Natural,Non-ionik
+Scutellaria Baicalensis Root Extract, Antioxidant ,,,,Natural,Non-ionik
+Sea Water, Solvent ,,Drying,,Natural,Non-ionik
+Sericin, Film Forming ,,Allergen,,Natural Derivative,Amfoterik
+Serine, Humectant ,,,,Natural Derivative,Amfoterik
+Sh-Oligopeptide-1, Skin Conditioning ,,,,Synthetic,Non-ionik
+Sh-Oligopeptide-2, Skin Conditioning ,,,,Synthetic,Non-ionik
+Sh-Polypeptide-1, Skin Conditioning ,,,,Synthetic,Non-ionik
+Sh-Polypeptide-22, Skin Conditioning ,,,,Synthetic,Non-ionik
+Sh-Polypeptide-3, Skin Conditioning ,,,,Synthetic,Non-ionik
+Silica, Absorbent ,,,,Natural,Non-ionik
+Silica Dimethyl Silylate, Rheology Modifier ,,,,Synthetic,Non-ionik
+Simmondsia Chinensis (Jojoba) Seed Oil, Emollient ,,,,Natural,Non-ionik
+Sodium Acetate, Buffering Agent ,,,,Natural Derivative,Anionik
+Sodium Acetylated Hyaluronate, Humectant ,,,,Natural Derivative,Anionik
+Sodium Ascorbyl Phosphate, Antioxidant ,,,,Synthetic,Anionik
+Sodium Benzoate, Preservative ,,,,Synthetic,Anionik
+Sodium Benzotriazolyl Butylphenol Sulfonate, UV Filter ,,,,Synthetic,Anionik
+Sodium Bisulfite, Antioxidant , Preservative,,,Synthetic,Anionik
+Sodium C14-16 Olefin Sulfonate, Cleansing Agent ,,Irritant,Drying,Synthetic,Anionik
+Sodium Carboxymethyl Beta-Glucan, Humectant ,,,,Natural Derivative,Anionik
+Sodium Chloride, Viscosity Control ,,,,Natural,Non-ionik
+Sodium Citrate, Buffering Agent , Chelating Agent,,,Natural Derivative,Anionik
+Sodium Cocoamphoacetate, Cleansing Agent ,,,,Natural Derivative,Amfoterik
+Sodium Cocoyl Alaninate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Cocoyl Glutamate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Cocoyl Glycinate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Cocoyl Isethionate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Diethylenetriamine Pentamethylene Phosphonate, Chelating Agent ,,,,Synthetic,Anionik
+Sodium Dna, Skin Conditioning ,,,,Natural Derivative,Anionik
+Sodium Gluceptate, Chelating Agent ,,,,Synthetic,Anionik
+Sodium Hyaluronate, Humectant ,,,,Natural Derivative,Anionik
+Sodium Hyaluronate Crosspolymer, Humectant ,,,,Synthetic,Anionik
+Sodium Hyaluronate Dimethylsilanol, Humectant ,,,,Synthetic,Non-ionik
+Sodium Hydrolyzed Potato Starch Dodecenylsuccinate, Rheology Modifier ,,,,Natural Derivative,Anionik
+Sodium Hydroxide, pH Adjuster ,,Irritant,,Synthetic,Non-ionik
+Sodium Lactate, Humectant ,,,,Natural Derivative,Non-ionik
+Sodium Laureth Sulfate, Cleansing Agent ,,Irritant,Drying,Synthetic,Anionik
+Sodium Lauroyl Aspartate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Lauroyl Glutamate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Lauroyl Lactylate, Emulsifier , Cleansing Agent,,,Natural Derivative,Anionik
+Sodium Lauroyl Sarcosinate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Metabisulfite, Antioxidant , Preservative,,,Synthetic,Anionik
+Sodium Metaphosphate, Chelating Agent ,,,,Synthetic,Anionik
+Sodium Methyl Cocoyl Taurate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Methyl Stearoyl Taurate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Sodium Nitrate, Preservative ,,,,Synthetic,Anionik
+Sodium Palmitoyl Proline, Skin Conditioning ,,,,Synthetic,Anionik
+Sodium Pca, Humectant ,,,,Natural Derivative,Anionik
+Sodium Phosphate, Buffering Agent ,,,,Synthetic,Anionik
+Sodium Phytate, Chelating Agent , Antioxidant,,,Natural Derivative,Anionik
+Sodium Polyacrylate, Rheology Modifier ,,,,Synthetic,Anionik
+Sodium Polyacryloyldimethyl Taurate, Rheology Modifier ,,,,Synthetic,Anionik
+Sodium Polyaspartate, Humectant ,,,,Natural Derivative,Anionik
+Sodium Polynaphthalenesulfonate, Dispersant ,,,,Synthetic,Anionik
+Sodium Stearoyl Glutamate, Emulsifier ,,,,Natural Derivative,Anionik
+Sodium Sulfate, Viscosity Control ,,,,Natural,Anionik
+Sodium Sulfite, Antioxidant , Preservative,,,Synthetic,Anionik
+Solanum Lycopersicum (Tomato) Fruit Extract, Antioxidant ,,,,Natural,Non-ionik
+Solanum Melongena (Eggplant) Fruit Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Sophora Angustifolia Root Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Sophora Japonica Bud Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Sorbic Acid, Preservative ,,,,Synthetic,Non-ionik
+Sorbitan Isostearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Sorbitan Olivate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Sorbitol, Humectant ,,,,Natural Derivative,Non-ionik
+Sphingomonas Ferment Extract, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Squalane, Emollient ,,,,Natural Derivative,Non-ionik
+Steareth-2, Emulsifier ,,,,Synthetic,Non-ionik
+Steareth-21, Emulsifier ,,,,Synthetic,Non-ionik
+Steareth-30, Emulsifier ,,,,Synthetic,Non-ionik
+Stearic Acid, Emulsifier ,,Comedogenic,,Natural Derivative,Non-ionik
+Stellaria Media (Chickweed) Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Stephania Tetrandra Root Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Streptococcus Thermophilus Ferment, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Styrene/Acrylates Copolymer, Film Forming ,,,,Synthetic,Anionik
+Succinic Acid, pH Adjuster ,,,,Natural Derivative,Non-ionik
+Sucrose Distearate, Emulsifier ,,,,Natural Derivative,Non-ionik
+Synthetic Fluorphlogopite, Colorant ,,,,Synthetic,Non-ionik
+Tamarindus Indica Seed Polysaccharide, Film Forming ,,,,Natural Derivative,Non-ionik
+Tea-Cocoyl Glutamate, Cleansing Agent ,,,,Natural Derivative,Anionik
+Terephthalylidene Dicamphor Sulfonic Acid, UV Filter ,,,,Synthetic,Anionik
+Terminalia Ferdinandiana (Kakadu Plum) Fruit Extract, Antioxidant ,,,,Natural,Non-ionik
+Tetradecene, Emollient ,,,,Synthetic,Non-ionik
+Tetrapeptide-44, Skin Conditioning ,,,,Synthetic,Non-ionik
+Tetrasodium Edta, Chelating Agent ,,,,Synthetic,Anionik
+Theobroma Cacao (Cocoa) Extract, Antioxidant ,,,,Natural,Non-ionik
+Theobroma Cacao (Cocoa) Seed Extract, Antioxidant ,,,,Natural,Non-ionik
+Thermus Thermophillus Ferment, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Thiamine Hcl, Skin Conditioning ,,,,Synthetic,Kationik
+Threonine, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Thymol Trimethoxycinnamate, UV Filter ,,,,Synthetic,Non-ionik
+Tin Oxide, Opacifying , Colorant,,,Natural,Non-ionik
+Tocopherol, Antioxidant ,,,,Natural Derivative,Non-ionik
+Tocopheryl Acetate, Antioxidant ,,,,Synthetic,Non-ionik
+Tocotrienols, Antioxidant ,,,,Natural Derivative,Non-ionik
+Tranexamic Acid, Skin Conditioning , Brightening,,,Synthetic,Non-ionik
+Tranexamoyl Dipeptide-22, Skin Conditioning , Brightening,,,Synthetic,Non-ionik
+Tranexamoyl Dipeptide-23, Skin Conditioning , Brightening,,,Synthetic,Non-ionik
+Trehalose, Humectant ,,,,Natural Derivative,Non-ionik
+Tremella Fuciformis (Mushroom) Extract, Humectant , Skin Conditioning,,,Natural,Non-ionik
+Tremella Fuciformis Sporocarp Extract, Humectant , Skin Conditioning,,,Natural,Non-ionik
+Tributyl Citrate, Solvent , Plasticizer,,,Synthetic,Non-ionik
+Tridecane, Emollient , Solvent,,,Synthetic,Non-ionik
+Trideceth-9, Solubilizer ,,,,Synthetic,Non-ionik
+Triethoxycaprylylsilane, Dispersing Agent ,,,,Synthetic,Non-ionik
+Triethylhexanoin, Emollient , Solvent,Comedogenic,,Synthetic,Non-ionik
+Tripeptide-1, Skin Conditioning ,,,,Synthetic,Non-ionik
+Tripeptide-29, Skin Conditioning ,,,,Synthetic,Non-ionik
+Tris(Tetramethylhydroxypiperidinol) Citrate, Antioxidant ,,,,Synthetic,Non-ionik
+Trisiloxane, Solvent , Emollient,,,Synthetic,Non-ionik
+Trisodium Ethylenediamine Disuccinate, Chelating Agent ,,,,Synthetic,Anionik
+Triticum Vulgare Sprout Extract, Skin Conditioning , Antioxidant,Allergen,,Natural,Non-ionik
+Tromethamine, pH Adjuster ,,,,Synthetic,Non-ionik
+Tuber Magnatum Extract, Fragrance ,,,,Natural,Non-ionik
+Tyrosine, Skin Conditioning ,,,,Natural Derivative,Amfoterik
+Ulmus Davidiana Root Extract, Soothing , Skin Conditioning,,,Natural,Non-ionik
+Ulva Lactuca Extract, Skin Conditioning , Antioxidant,,,Natural,Non-ionik
+Undaria Pinnatifida Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Undecane, Emollient , Solvent,,,Synthetic,Non-ionik
+Undecylenoyl Phenylalanine, Brightening , Skin Conditioning,,,Synthetic,Non-ionik
+Urea, Humectant , Skin Conditioning,,,Natural Derivative,Non-ionik
+Valine, Humectant , Skin Conditioning,,,Natural Derivative,Amfoterik
+Vigna Radiata Seed Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Vinegar, pH Adjuster ,,Irritant,,Natural Derivative,Non-ionik
+Vinyl Dimethicone/Methicone Silsesquioxane Crosspolymer, Texture Enhancer , Film Forming,,,Synthetic,Non-ionik
+Xanthan Gum, Rheology Modifier ,,,,Natural Derivative,Anionik
+Xylitol, Humectant ,,,,Natural Derivative,Non-ionik
+Xylitylglucoside, Humectant ,,,,Natural Derivative,Non-ionik
+Xylose, Humectant ,,,,Natural Derivative,Non-ionik
+Yeast Extract, Skin Conditioning ,,,,Natural Derivative,Non-ionik
+Zea Mays (Corn) Kernel Extract, Skin Conditioning ,,,,Natural,Non-ionik
+Zea Mays (Corn) Starch, Absorbent ,,,,Natural,Non-ionik
+Zinc Pca, Sebum Regulating , Antimicrobial,,,Synthetic,Non-ionik
+Zinc Pyrithione, Antimicrobial , Anti-Dandruff,Irritant,Drying,Synthetic,Non-ionik
+Zinc Stearate, Texture Enhancer , Opacifying,,,Natural Derivative,Non-ionik
