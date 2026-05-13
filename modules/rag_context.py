@@ -206,6 +206,78 @@ def _merge_ingredient_data(
     return merged
 
 
+def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
+    """
+    Get simple description for a single ingredient from datasets.
+    Returns a dictionary with name, simple_description, functions, warnings, etc.
+    """
+    if not ingredient_name or not ingredient_name.strip():
+        return {}
+    
+    # Load all 3 datasets
+    descriptions = _load_descriptions_dataset()
+    categories = _load_categories_dataset()
+    bpom_harmful = _load_bpom_harmful_dataset()
+    
+    normalized_name = _normalize_name(ingredient_name)
+    
+    # Try exact match first
+    all_keys = set()
+    all_keys.update(descriptions.keys())
+    all_keys.update(categories.keys())
+    all_keys.update(bpom_harmful.keys())
+    
+    matched_key = ""
+    if normalized_name in all_keys:
+        matched_key = normalized_name
+    else:
+        # Try fuzzy match
+        fuzzy_cutoff = float(os.getenv("RAG_FUZZY_THRESHOLD", "0.84"))
+        close_matches = difflib.get_close_matches(
+            normalized_name,
+            list(all_keys),
+            n=1,
+            cutoff=fuzzy_cutoff,
+        )
+        if close_matches:
+            matched_key = close_matches[0]
+    
+    if not matched_key:
+        return {}
+    
+    # Merge data from all 3 datasets
+    merged = _merge_ingredient_data(descriptions, categories, bpom_harmful, matched_key)
+    
+    # Extract simple description (first 200 chars of full description)
+    full_desc = merged.get("description", "")
+    if full_desc:
+        # Extract first sentence or first 200 chars
+        sentences = full_desc.split(". ")
+        if sentences:
+            simple_desc = sentences[0] + "."
+            if len(simple_desc) > 200:
+                simple_desc = simple_desc[:197] + "..."
+        else:
+            simple_desc = full_desc[:197] + "..." if len(full_desc) > 200 else full_desc
+    else:
+        simple_desc = ""
+    
+    # Build result
+    result = {
+        "name": merged.get("name", ingredient_name),
+        "simple_description": simple_desc,
+        "functions": merged.get("functions", ""),
+        "warnings": merged.get("warnings", ""),
+        "origin": merged.get("origin", ""),
+        "harmful": merged.get("harmful", False),
+        "bpom_warning": merged.get("bpom_warning", ""),
+        "sources": merged.get("sources", []),
+        "found_in_dataset": True
+    }
+    
+    return result
+
+
 def build_rag_context(
     ingredient_tokens: List[str],
     top_k: int | None = None,
