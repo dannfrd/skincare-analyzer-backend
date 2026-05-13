@@ -14,8 +14,10 @@ ALGORITHM = "HS256"
 
 from modules.text_cleaning import clean_text_pipeline, extract_ingredient_text
 from modules.ingredient_matching import match_tokens_to_db
-from modules.gemini_ai import analyze_ingredients_with_ai
+from modules.gemini_ai import analyze_ingredients_with_ai, generate_simple_descriptions
+import concurrent.futures
 from modules.expert_system import run_expert_system
+from modules.rag_context import get_ingredient_simple_description
 from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image
@@ -266,17 +268,60 @@ def process_text_analysis(raw_text: str):
     
     # 4. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
+    
+    # 5. Enrich matched ingredients with dataset descriptions
+    # Tambahkan deskripsi singkat dari dataset RAG untuk setiap ingredient
+    for ingredient in matched_ingredients:
+        ingredient_name = ingredient.get("name", "")
+        dataset_info = get_ingredient_simple_description(ingredient_name)
+        
+        if dataset_info and dataset_info.get("found_in_dataset"):
+            # Tambahkan info dari dataset
+            ingredient["dataset_description"] = dataset_info.get("simple_description", "")
+            ingredient["dataset_functions"] = dataset_info.get("functions", "")
+            ingredient["dataset_warnings"] = dataset_info.get("warnings", "")
+            ingredient["dataset_origin"] = dataset_info.get("origin", "")
+            ingredient["dataset_harmful"] = dataset_info.get("harmful", False)
+            ingredient["dataset_bpom_warning"] = dataset_info.get("bpom_warning", "")
+            ingredient["dataset_sources"] = dataset_info.get("sources", [])
+            ingredient["found_in_dataset"] = True
+        else:
+            # Tidak ditemukan di dataset
+            ingredient["dataset_description"] = ""
+            ingredient["dataset_functions"] = ""
+            ingredient["dataset_warnings"] = ""
+            ingredient["dataset_origin"] = ""
+            ingredient["dataset_harmful"] = False
+            ingredient["dataset_bpom_warning"] = ""
+            ingredient["dataset_sources"] = []
+            ingredient["found_in_dataset"] = False
 
-    # 5. Rule-based expert analysis
+    # 6. Rule-based expert analysis
     expert_report = run_expert_system(matched_ingredients)
     
-    # 6. Gemini AI analysis with model fallback + dataset-grounded prompt
-    ai_result_payload = analyze_ingredients_with_ai(
-        text=ingredient_text,
-        ingredient_tokens=cleaned_tokens,
-        matched_ingredients=matched_ingredients,
-        include_metadata=True,
-    )
+    # 7. Gemini AI analysis with model fallback + dataset-grounded prompt
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_ai = executor.submit(
+            analyze_ingredients_with_ai,
+            text=ingredient_text,
+            ingredient_tokens=cleaned_tokens,
+            matched_ingredients=matched_ingredients,
+            include_metadata=True,
+        )
+        future_simple = executor.submit(
+            generate_simple_descriptions,
+            matched_ingredients=matched_ingredients
+        )
+        
+        ai_result_payload = future_ai.result()
+        simple_descriptions_map = future_simple.result()
+
+    # Mapped simple descriptions
+    for ing in matched_ingredients:
+        name = str(ing.get("name") or ing.get("ocr_token_used") or "").upper().strip()
+        if name in simple_descriptions_map:
+            ing["dataset_description"] = simple_descriptions_map[name]
+
 
     if isinstance(ai_result_payload, dict):
         ai_result_text = str(ai_result_payload.get("text") or "")
@@ -306,7 +351,7 @@ def process_text_analysis(raw_text: str):
         },
     }
 
-    # 7. MySQL Database (Laragon) - Simpan hasil analisis
+    # 8. MySQL Database (Laragon) - Simpan hasil analisis
     # Note: DB schema must align
     saved_id = db.save_analysis_result(
         raw_text=raw_text,
