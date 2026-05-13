@@ -2,6 +2,8 @@ import os
 import threading
 import warnings
 import importlib
+import json
+import re
 from typing import Any, Dict, List
 from dotenv import load_dotenv
 
@@ -320,3 +322,66 @@ def analyze_ingredients_with_ai(
         }
 
     return ai_text
+
+
+def generate_simple_descriptions(matched_ingredients: List[Dict[str, Any]]) -> Dict[str, str]:
+    if not API_KEY or GEMINI_SDK_MODE == "unavailable":
+        return {}
+
+    ingredient_list = []
+    for ing in matched_ingredients:
+        name = ing.get("name") or ing.get("ocr_token_used") or ""
+        if not name:
+            continue
+        desc = ing.get("dataset_description") or ing.get("description") or ""
+        funcs = ing.get("dataset_functions") or ing.get("function") or ""
+        ingredient_list.append(f"- {name}: Data({desc}) Fungsi({funcs})")
+
+    if not ingredient_list:
+        return {}
+
+    prompt = f"""
+Anda adalah ahli skincare yang bertugas menjelaskan bahan skincare ke orang awam.
+Berikan penjelasan SINGKAT (maksimal 1 kalimat, gunakan bahasa awam/mudah dipahami, JANGAN bahasa kimia rumit) tentang fungsi utama dari setiap bahan berikut.
+Tujuan: Pembaca langsung tahu "bahan ini buat apa".
+Jika datanya kosong/terbatas (misal AQUA), gunakan pengetahuan umum tentang bahan skincare tersebut (misal AQUA = Air murni yang berfungsi sebagai pelarut utama).
+
+Daftar Bahan:
+{chr(10).join(ingredient_list)}
+
+FORMAT JAWABAN WAJIB JSON VALID (TANPA teks lain):
+{{
+  "NAMA_BAHAN": "Penjelasan singkat maksimal 1 kalimat...",
+  "NAMA_BAHAN_2": "..."
+}}
+""".strip()
+
+    result_holder = {"value": {}}
+
+    def run_request() -> None:
+        try:
+            response_payload = _call_gemini(prompt)
+            text = response_payload.get("text", "").strip()
+            
+            # Clean up markdown JSON block if present
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+                
+            text = text.strip()
+            result_holder["value"] = json.loads(text)
+        except Exception as exc:
+            print(f"Error generating simple descriptions: {exc}")
+
+    request_thread = threading.Thread(target=run_request, daemon=True)
+    request_thread.start()
+    request_thread.join(timeout=GEMINI_TIMEOUT_SECONDS)
+
+    # Normalize keys to uppercase for easier matching later
+    raw_dict = result_holder["value"]
+    if isinstance(raw_dict, dict):
+        return {str(k).upper().strip(): str(v) for k, v in raw_dict.items()}
+    return {}
