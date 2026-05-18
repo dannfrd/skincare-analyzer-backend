@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 from pydantic import BaseModel, Field
@@ -150,6 +150,9 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
 # model request dari Flutter
 class IngredientRequest(BaseModel):
     text: str
+    product_name: Optional[str] = None
+    product_brand: Optional[str] = None
+    product_category: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
@@ -244,7 +247,13 @@ def analyze_ingredients(data: IngredientRequest, request: Request):
     raw_text = data.text
     db = get_db_connection()
     user_id = _resolve_user_id_from_request(request, db)
-    return process_text_analysis(raw_text, user_id=user_id)
+    return process_text_analysis(
+        raw_text,
+        user_id=user_id,
+        product_name=data.product_name,
+        product_brand=data.product_brand,
+        product_category=data.product_category,
+    )
 
 
 @app.get("/analysis-history")
@@ -262,7 +271,13 @@ def analysis_detail(analysis_id: int):
     return detail
 
 @app.post("/analyze-image")
-async def analyze_image(request: Request, file: UploadFile = File(...)):
+async def analyze_image(
+    request: Request,
+    file: UploadFile = File(...),
+    product_name: str | None = Form(default=None),
+    product_brand: str | None = Form(default=None),
+    product_category: str | None = Form(default=None),
+):
     """Receives an image for OCR, then processes the text."""
     try:
         # Save temporary file
@@ -284,12 +299,24 @@ async def analyze_image(request: Request, file: UploadFile = File(...)):
         # 2. Process text through the existing pipeline
         db = get_db_connection()
         user_id = _resolve_user_id_from_request(request, db)
-        return process_text_analysis(extracted_text, user_id=user_id)
+        return process_text_analysis(
+            extracted_text,
+            user_id=user_id,
+            product_name=product_name,
+            product_brand=product_brand,
+            product_category=product_category,
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def process_text_analysis(raw_text: str, user_id: Optional[int] = None):
+def process_text_analysis(
+    raw_text: str,
+    user_id: Optional[int] = None,
+    product_name: Optional[str] = None,
+    product_brand: Optional[str] = None,
+    product_category: Optional[str] = None,
+):
     """Helper function to run the NLP/AI pipeline on text."""
     # 1. Keep only ingredient-like text for downstream AI and matching
     ingredient_text = extract_ingredient_text(raw_text)
@@ -386,6 +413,13 @@ def process_text_analysis(raw_text: str, user_id: Optional[int] = None):
         },
     }
 
+    if product_name or product_brand or product_category:
+        result_data["product"] = {
+            "name": product_name,
+            "brand": product_brand,
+            "category": product_category,
+        }
+
     # 8. MySQL Database (Laragon) - Simpan hasil analisis
     # Note: DB schema must align
     saved_id = db.save_analysis_result(
@@ -394,6 +428,9 @@ def process_text_analysis(raw_text: str, user_id: Optional[int] = None):
         matched_ingredients=matched_ingredients,
         expert_report=expert_report,
         user_id=user_id,
+        product_name=product_name,
+        product_brand=product_brand,
+        product_category=product_category,
     )
     if saved_id:
         result_data["analysis_id"] = saved_id
