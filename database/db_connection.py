@@ -78,6 +78,9 @@ class DatabaseConnection:
         matched_ingredients: Optional[List[Dict[str, Any]]] = None,
         expert_report: Optional[Dict[str, Any]] = None,
         user_id: Optional[int] = None,
+        product_name: Optional[str] = None,
+        product_brand: Optional[str] = None,
+        product_category: Optional[str] = None,
     ) -> Optional[int]:
         """
         Menyimpan hasil analisis.
@@ -99,13 +102,23 @@ class DatabaseConnection:
                     if not resolved_user_id:
                         return None
 
+                    product_id = None
+                    if self._table_exists(conn, "products"):
+                        product_id = self._resolve_or_create_product(
+                            conn,
+                            product_name,
+                            product_brand,
+                            product_category,
+                        )
+
                     scan_insert = conn.execute(text(
                         """
                         INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
-                        VALUES (:user_id, NULL, NULL, :extracted_text, NOW())
+                        VALUES (:user_id, :product_id, NULL, :extracted_text, NOW())
                         """
                     ), {
                         "user_id": resolved_user_id,
+                        "product_id": product_id,
                         "extracted_text": raw_text,
                     })
                     scan_id = scan_insert.lastrowid
@@ -373,6 +386,52 @@ class DatabaseConnection:
         return conn.execute(text(
             "SELECT id FROM users WHERE email = :email LIMIT 1"
         ), {"email": email}).scalar()
+
+    def _resolve_or_create_product(
+        self,
+        conn,
+        name: Optional[str],
+        brand: Optional[str],
+        category: Optional[str],
+    ) -> Optional[int]:
+        normalized_name = (name or "").strip()
+        normalized_brand = (brand or "").strip()
+        normalized_category = (category or "").strip()
+
+        if not (normalized_name or normalized_brand or normalized_category):
+            return None
+
+        name_value = normalized_name or None
+        brand_value = normalized_brand or None
+        category_value = normalized_category or None
+
+        existing = conn.execute(text(
+            """
+            SELECT id
+            FROM products
+            WHERE name <=> :name AND brand <=> :brand
+            LIMIT 1
+            """
+        ), {
+            "name": name_value,
+            "brand": brand_value,
+        }).fetchone()
+
+        if existing:
+            return existing.id if hasattr(existing, "id") else existing[0]
+
+        insert = conn.execute(text(
+            """
+            INSERT INTO products (name, brand, category, created_at)
+            VALUES (:name, :brand, :category, NOW())
+            """
+        ), {
+            "name": name_value,
+            "brand": brand_value,
+            "category": category_value,
+        })
+
+        return insert.lastrowid
 
     @staticmethod
     def _to_iso_datetime(value: Any) -> Optional[str]:
