@@ -138,13 +138,15 @@ class DatabaseConnection:
 
                     analysis_insert = conn.execute(text(
                         """
-                        INSERT INTO analyses (scan_id, summary, recommendation, status, created_at)
-                        VALUES (:scan_id, :summary, :recommendation, :status, NOW())
+                        INSERT INTO analyses (scan_id, summary, recommendation, expert_analysis, ai_analysis, status, created_at)
+                        VALUES (:scan_id, :summary, :recommendation, :expert_analysis, :ai_analysis, :status, NOW())
                         """
                     ), {
                         "scan_id": scan_id,
                         "summary": summary_text,
                         "recommendation": recommendation_text,
+                        "expert_analysis": json.dumps(expert_report) if expert_report else None,
+                        "ai_analysis": json.dumps(ai_result.get("ai_analysis")) if ai_result and "ai_analysis" in ai_result else None,
                         "status": "completed",
                     })
                     analysis_id = analysis_insert.lastrowid
@@ -713,6 +715,8 @@ class DatabaseConnection:
                             a.scan_id,
                             a.summary,
                             a.recommendation,
+                            a.expert_analysis,
+                            a.ai_analysis,
                             a.status,
                             a.created_at,
                             s.extracted_text,
@@ -773,6 +777,21 @@ class DatabaseConnection:
                             "risk": row.get("risk"),
                         })
 
+                    # Parse JSON text back to Dict
+                    expert_payload = base_row.get("expert_analysis")
+                    if isinstance(expert_payload, str):
+                        try:
+                            expert_payload = json.loads(expert_payload)
+                        except json.JSONDecodeError:
+                            pass
+
+                    ai_payload = base_row.get("ai_analysis")
+                    if isinstance(ai_payload, str):
+                        try:
+                            ai_payload = json.loads(ai_payload)
+                        except json.JSONDecodeError:
+                            pass
+
                     return {
                         "id": base_row.get("id"),
                         "scan_id": base_row.get("scan_id"),
@@ -780,6 +799,8 @@ class DatabaseConnection:
                         "summary": base_row.get("summary"),
                         "recommendation": base_row.get("recommendation"),
                         "status": base_row.get("status"),
+                        "expert_analysis": expert_payload,   # Kirim kembali ke Flutter
+                        "ai_analysis": ai_payload,           # Kirim kembali ke Flutter
                         "matched_ingredient_count": len(matched_ingredients),
                         "matched_ingredients": matched_ingredients,
                         "user": {

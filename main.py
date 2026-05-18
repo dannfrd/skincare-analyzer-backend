@@ -530,3 +530,60 @@ def metrics_recent(
     records = db.get_recent_analysis_results(limit=limit)
     # FastAPI will coerce dict list into the response model
     return records
+
+
+
+# Endpoint GET /history untuk mengambil histori user
+@app.get("/history")
+def get_user_history(request: Request, db=Depends(get_db_connection)):
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_email = payload.get("sub")
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
+
+    with db.engine.connect() as conn:
+        user = conn.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {"email": user_email}
+        ).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user_id = user.id if hasattr(user, 'id') else user[0]
+
+        # QUERY DIPERBARUI: Melakukan JOIN agar data Product dan Analysis ikut terambil
+        histories = conn.execute(
+            text("""
+                SELECT 
+                    uh.id AS history_id,
+                    uh.viewed_at,
+                    a.id AS analysis_id,
+                    a.summary,
+                    a.recommendation,
+                    a.status,
+                    a.created_at,
+                    p.name AS product_name,
+                    p.brand AS product_brand,
+                    p.category AS product_category
+                FROM user_histories uh
+                JOIN analyses a ON uh.analysis_id = a.id
+                JOIN scans s ON a.scan_id = s.id
+                LEFT JOIN products p ON s.product_id = p.id
+                WHERE uh.user_id = :user_id
+                ORDER BY uh.viewed_at DESC
+            """),
+            {"user_id": user_id}
+        ).fetchall()
+        
+        # Convert SQLAlchemy RowProxy/Row to dict
+        result = []
+        for row in histories:
+            result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
+            
+        return {"items": result}
