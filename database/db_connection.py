@@ -77,6 +77,7 @@ class DatabaseConnection:
         ai_result: dict,
         matched_ingredients: Optional[List[Dict[str, Any]]] = None,
         expert_report: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
     ) -> Optional[int]:
         """
         Menyimpan hasil analisis.
@@ -91,6 +92,65 @@ class DatabaseConnection:
 
         try:
             with self.engine.begin() as conn:
+                required_tables = ["users", "scans", "analyses"]
+                has_new_schema = all(self._table_exists(conn, table_name) for table_name in required_tables)
+                if has_new_schema:
+                    resolved_user_id = user_id or self._ensure_system_user(conn)
+                    if not resolved_user_id:
+                        return None
+
+                    scan_insert = conn.execute(text(
+                        """
+                        INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
+                        VALUES (:user_id, NULL, NULL, :extracted_text, NOW())
+                        """
+                    ), {
+                        "user_id": resolved_user_id,
+                        "extracted_text": raw_text,
+                    })
+                    scan_id = scan_insert.lastrowid
+
+                    self._save_scan_ingredient_links(conn, scan_id, matched_ingredients)
+
+                    summary_text = self._extract_primary_text(ai_result, ["summary", "ringkasan", "result"])
+                    if not summary_text:
+                        summary_text = self._build_summary_from_expert(expert_report)
+
+                    recommendation_text = self._extract_primary_text(
+                        ai_result,
+                        ["recommendation", "rekomendasi", "suggestion"],
+                    )
+                    if not recommendation_text:
+                        recommendation_text = self._build_recommendation_from_expert(expert_report)
+
+                    analysis_insert = conn.execute(text(
+                        """
+                        INSERT INTO analyses (scan_id, summary, recommendation, status, created_at)
+                        VALUES (:scan_id, :summary, :recommendation, :status, NOW())
+                        """
+                    ), {
+                        "scan_id": scan_id,
+                        "summary": summary_text,
+                        "recommendation": recommendation_text,
+                        "status": "completed",
+                    })
+                    analysis_id = analysis_insert.lastrowid
+
+                    self._save_analysis_details(conn, analysis_id, matched_ingredients, expert_report)
+
+                    if self._table_exists(conn, "user_histories"):
+                        conn.execute(text(
+                            """
+                            INSERT INTO user_histories (user_id, analysis_id, viewed_at)
+                            VALUES (:user_id, :analysis_id, NOW())
+                            """
+                        ), {
+                            "user_id": resolved_user_id,
+                            "analysis_id": analysis_id,
+                        })
+
+                    return analysis_id
+
                 if self._table_exists(conn, "analysis_results"):
                     result = conn.execute(text(
                         """
@@ -103,65 +163,7 @@ class DatabaseConnection:
                     })
                     return result.lastrowid
 
-                required_tables = ["users", "scans", "analyses"]
-                if not all(self._table_exists(conn, table_name) for table_name in required_tables):
-                    return None
-
-                user_id = self._ensure_system_user(conn)
-                if not user_id:
-                    return None
-
-                scan_insert = conn.execute(text(
-                    """
-                    INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
-                    VALUES (:user_id, NULL, NULL, :extracted_text, NOW())
-                    """
-                ), {
-                    "user_id": user_id,
-                    "extracted_text": raw_text,
-                })
-                scan_id = scan_insert.lastrowid
-
-                self._save_scan_ingredient_links(conn, scan_id, matched_ingredients)
-
-                summary_text = self._extract_primary_text(ai_result, ["summary", "ringkasan", "result"])
-                if not summary_text:
-                    summary_text = self._build_summary_from_expert(expert_report)
-
-                recommendation_text = self._extract_primary_text(
-                    ai_result,
-                    ["recommendation", "rekomendasi", "suggestion"],
-                )
-                if not recommendation_text:
-                    recommendation_text = self._build_recommendation_from_expert(expert_report)
-
-                analysis_insert = conn.execute(text(
-                    """
-                    INSERT INTO analyses (scan_id, summary, recommendation, status, created_at)
-                    VALUES (:scan_id, :summary, :recommendation, :status, NOW())
-                    """
-                ), {
-                    "scan_id": scan_id,
-                    "summary": summary_text,
-                    "recommendation": recommendation_text,
-                    "status": "completed",
-                })
-                analysis_id = analysis_insert.lastrowid
-
-                self._save_analysis_details(conn, analysis_id, matched_ingredients, expert_report)
-
-                if self._table_exists(conn, "user_histories"):
-                    conn.execute(text(
-                        """
-                        INSERT INTO user_histories (user_id, analysis_id, viewed_at)
-                        VALUES (:user_id, :analysis_id, NOW())
-                        """
-                    ), {
-                        "user_id": user_id,
-                        "analysis_id": analysis_id,
-                    })
-
-                return analysis_id
+                return None
         except Exception as e:
             logger.error(f"Error saving analysis result: {e}")
             return None
@@ -421,18 +423,25 @@ class DatabaseConnection:
 
         try:
             with self.engine.connect() as conn:
-                if self._table_exists(conn, "analysis_results"):
+                if self._table_exists(conn, "analyses"):
                     totals = conn.execute(text(
                         """
                         SELECT COUNT(*) AS total,
                                MAX(created_at) AS last_created,
-                               MIN(created_at) AS first_created
-                        FROM analysis_results
+                               MIN(created_at) AS first_created,
+                               SUM(CASE WHEN LOWER(status) = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+                               SUM(CASE WHEN LOWER(status) = 'completed' THEN 1 ELSE 0 END) AS completed_count,
+                               SUM(CASE WHEN LOWER(status) IN ('failed', 'error', 'rejected') THEN 1 ELSE 0 END) AS failed_count
+                        FROM analyses
                         """
                     )).mappings().first()
 
                     if totals:
                         summary["total"] = totals.get("total", 0) or 0
+                        summary["pending"] = totals.get("pending_count", 0) or 0
+                        summary["completed"] = totals.get("completed_count", 0) or 0
+                        summary["failed"] = totals.get("failed_count", 0) or 0
+
                         last_created = totals.get("last_created")
                         first_created = totals.get("first_created")
                         summary["last_created_at"] = self._to_iso_datetime(last_created)
@@ -444,41 +453,34 @@ class DatabaseConnection:
 
                     summary["last_24h"] = conn.execute(text(
                         """
-                        SELECT COUNT(*) FROM analysis_results
+                        SELECT COUNT(*) FROM analyses
                         WHERE created_at >= NOW() - INTERVAL 1 DAY
                         """
                     )).scalar() or 0
 
                     summary["last_7d"] = conn.execute(text(
                         """
-                        SELECT COUNT(*) FROM analysis_results
+                        SELECT COUNT(*) FROM analyses
                         WHERE created_at >= NOW() - INTERVAL 7 DAY
                         """
                     )).scalar() or 0
 
                     return summary
 
-                if not self._table_exists(conn, "analyses"):
+                if not self._table_exists(conn, "analysis_results"):
                     return summary
 
                 totals = conn.execute(text(
                     """
                     SELECT COUNT(*) AS total,
                            MAX(created_at) AS last_created,
-                           MIN(created_at) AS first_created,
-                           SUM(CASE WHEN LOWER(status) = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                           SUM(CASE WHEN LOWER(status) = 'completed' THEN 1 ELSE 0 END) AS completed_count,
-                           SUM(CASE WHEN LOWER(status) IN ('failed', 'error', 'rejected') THEN 1 ELSE 0 END) AS failed_count
-                    FROM analyses
+                           MIN(created_at) AS first_created
+                    FROM analysis_results
                     """
                 )).mappings().first()
 
                 if totals:
                     summary["total"] = totals.get("total", 0) or 0
-                    summary["pending"] = totals.get("pending_count", 0) or 0
-                    summary["completed"] = totals.get("completed_count", 0) or 0
-                    summary["failed"] = totals.get("failed_count", 0) or 0
-
                     last_created = totals.get("last_created")
                     first_created = totals.get("first_created")
                     summary["last_created_at"] = self._to_iso_datetime(last_created)
@@ -490,14 +492,14 @@ class DatabaseConnection:
 
                 summary["last_24h"] = conn.execute(text(
                     """
-                    SELECT COUNT(*) FROM analyses
+                    SELECT COUNT(*) FROM analysis_results
                     WHERE created_at >= NOW() - INTERVAL 1 DAY
                     """
                 )).scalar() or 0
 
                 summary["last_7d"] = conn.execute(text(
                     """
-                    SELECT COUNT(*) FROM analyses
+                    SELECT COUNT(*) FROM analysis_results
                     WHERE created_at >= NOW() - INTERVAL 7 DAY
                     """
                 )).scalar() or 0
@@ -515,119 +517,119 @@ class DatabaseConnection:
 
         try:
             with self.engine.connect() as conn:
-                if self._table_exists(conn, "analysis_results"):
+                if self._table_exists(conn, "analyses"):
                     query = text(
                         """
-                        SELECT id, raw_text, ai_analysis, created_at
-                        FROM analysis_results
-                        ORDER BY created_at DESC
+                        SELECT
+                            a.id,
+                            a.scan_id,
+                            a.summary,
+                            a.recommendation,
+                            a.status,
+                            a.created_at,
+                            s.extracted_text,
+                            u.id AS user_id,
+                            u.name AS user_name,
+                            u.email AS user_email,
+                            p.id AS product_id,
+                            p.name AS product_name,
+                            p.brand AS product_brand,
+                            p.category AS product_category,
+                            COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
+                            GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients,
+                            COUNT(DISTINCT ad.id) AS detail_count
+                        FROM analyses a
+                        LEFT JOIN scans s ON s.id = a.scan_id
+                        LEFT JOIN users u ON u.id = s.user_id
+                        LEFT JOIN products p ON p.id = s.product_id
+                        LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                        LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                        LEFT JOIN analysis_details ad ON ad.analysis_id = a.id
+                        GROUP BY
+                            a.id,
+                            a.scan_id,
+                            a.summary,
+                            a.recommendation,
+                            a.status,
+                            a.created_at,
+                            s.extracted_text,
+                            u.id,
+                            u.name,
+                            u.email,
+                            p.id,
+                            p.name,
+                            p.brand,
+                            p.category
+                        ORDER BY a.created_at DESC
                         LIMIT :limit
                         """
                     )
 
                     records: List[Dict[str, Any]] = []
                     for row in conn.execute(query, {"limit": limit}).mappings():
-                        ai_payload: Optional[Any] = row.get("ai_analysis")
-                        if isinstance(ai_payload, str):
-                            try:
-                                ai_payload = json.loads(ai_payload)
-                            except json.JSONDecodeError:
-                                pass
+                        raw_matched = row.get("matched_ingredients") or ""
+                        matched_ingredients = [
+                            item.strip() for item in str(raw_matched).split(",") if item and item.strip()
+                        ]
+
+                        ai_payload = {
+                            "summary": row.get("summary"),
+                            "recommendation": row.get("recommendation"),
+                            "matched_ingredients": matched_ingredients,
+                            "status": row.get("status"),
+                        }
 
                         records.append({
                             "id": row.get("id"),
-                            "raw_text": row.get("raw_text"),
+                            "scan_id": row.get("scan_id"),
+                            "raw_text": row.get("extracted_text"),
+                            "summary": row.get("summary"),
+                            "recommendation": row.get("recommendation"),
+                            "status": row.get("status"),
+                            "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
+                            "matched_ingredients": matched_ingredients,
+                            "detail_count": row.get("detail_count") or 0,
+                            "user": {
+                                "id": row.get("user_id"),
+                                "name": row.get("user_name"),
+                                "email": row.get("user_email"),
+                            } if row.get("user_id") else None,
+                            "product": {
+                                "id": row.get("product_id"),
+                                "name": row.get("product_name"),
+                                "brand": row.get("product_brand"),
+                                "category": row.get("product_category"),
+                            } if row.get("product_id") else None,
                             "ai_analysis": ai_payload,
                             "created_at": self._to_iso_datetime(row.get("created_at")),
                         })
 
                     return records
 
-                if not self._table_exists(conn, "analyses"):
+                if not self._table_exists(conn, "analysis_results"):
                     return []
 
                 query = text(
                     """
-                    SELECT
-                        a.id,
-                        a.scan_id,
-                        a.summary,
-                        a.recommendation,
-                        a.status,
-                        a.created_at,
-                        s.extracted_text,
-                        u.id AS user_id,
-                        u.name AS user_name,
-                        u.email AS user_email,
-                        p.id AS product_id,
-                        p.name AS product_name,
-                        p.brand AS product_brand,
-                        p.category AS product_category,
-                        COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
-                        GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients,
-                        COUNT(DISTINCT ad.id) AS detail_count
-                    FROM analyses a
-                    LEFT JOIN scans s ON s.id = a.scan_id
-                    LEFT JOIN users u ON u.id = s.user_id
-                    LEFT JOIN products p ON p.id = s.product_id
-                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
-                    LEFT JOIN analysis_details ad ON ad.analysis_id = a.id
-                    GROUP BY
-                        a.id,
-                        a.scan_id,
-                        a.summary,
-                        a.recommendation,
-                        a.status,
-                        a.created_at,
-                        s.extracted_text,
-                        u.id,
-                        u.name,
-                        u.email,
-                        p.id,
-                        p.name,
-                        p.brand,
-                        p.category
-                    ORDER BY a.created_at DESC
+                    SELECT id, raw_text, ai_analysis, created_at
+                    FROM analysis_results
+                    ORDER BY created_at DESC
                     LIMIT :limit
                     """
                 )
 
                 records: List[Dict[str, Any]] = []
                 for row in conn.execute(query, {"limit": limit}).mappings():
-                    raw_matched = row.get("matched_ingredients") or ""
-                    matched_ingredients = [
-                        item.strip() for item in str(raw_matched).split(",") if item and item.strip()
-                    ]
-
-                    ai_payload = {
-                        "summary": row.get("summary"),
-                        "recommendation": row.get("recommendation"),
-                        "matched_ingredients": matched_ingredients,
-                        "status": row.get("status"),
-                    }
+                    ai_payload: Optional[Any] = row.get("ai_analysis")
+                    if isinstance(ai_payload, str):
+                        try:
+                            ai_payload = json.loads(ai_payload)
+                        except json.JSONDecodeError:
+                            pass
 
                     records.append({
                         "id": row.get("id"),
-                        "scan_id": row.get("scan_id"),
-                        "raw_text": row.get("extracted_text"),
-                        "summary": row.get("summary"),
-                        "recommendation": row.get("recommendation"),
-                        "status": row.get("status"),
-                        "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
-                        "matched_ingredients": matched_ingredients,
-                        "detail_count": row.get("detail_count") or 0,
-                        "user": {
-                            "id": row.get("user_id"),
-                            "name": row.get("user_name"),
-                            "email": row.get("user_email"),
-                        } if row.get("user_id") else None,
-                        "product": {
-                            "id": row.get("product_id"),
-                            "name": row.get("product_name"),
-                            "brand": row.get("product_brand"),
-                            "category": row.get("product_category"),
-                        } if row.get("product_id") else None,
+                        "raw_text": row.get("raw_text"),
                         "ai_analysis": ai_payload,
                         "created_at": self._to_iso_datetime(row.get("created_at")),
                     })
@@ -644,124 +646,124 @@ class DatabaseConnection:
 
         try:
             with self.engine.connect() as conn:
-                if self._table_exists(conn, "analysis_results"):
-                    row = conn.execute(text(
+                if self._table_exists(conn, "analyses"):
+                    base_row = conn.execute(text(
                         """
-                        SELECT id, raw_text, ai_analysis, created_at
-                        FROM analysis_results
-                        WHERE id = :analysis_id
+                        SELECT
+                            a.id,
+                            a.scan_id,
+                            a.summary,
+                            a.recommendation,
+                            a.status,
+                            a.created_at,
+                            s.extracted_text,
+                            u.id AS user_id,
+                            u.name AS user_name,
+                            u.email AS user_email,
+                            p.id AS product_id,
+                            p.name AS product_name,
+                            p.brand AS product_brand,
+                            p.category AS product_category
+                        FROM analyses a
+                        LEFT JOIN scans s ON s.id = a.scan_id
+                        LEFT JOIN users u ON u.id = s.user_id
+                        LEFT JOIN products p ON p.id = s.product_id
+                        WHERE a.id = :analysis_id
                         LIMIT 1
                         """
                     ), {"analysis_id": analysis_id}).mappings().first()
 
-                    if not row:
+                    if not base_row:
                         return None
 
-                    ai_payload: Any = row.get("ai_analysis")
-                    if isinstance(ai_payload, str):
-                        try:
-                            ai_payload = json.loads(ai_payload)
-                        except json.JSONDecodeError:
-                            pass
+                    ingredient_rows = conn.execute(text(
+                        """
+                        SELECT
+                            i.id,
+                            i.name,
+                            i.risk_level,
+                            i.description,
+                            i.`function` AS ingredient_function,
+                            ad.benefit,
+                            ad.risk
+                        FROM analyses a
+                        LEFT JOIN scans s ON s.id = a.scan_id
+                        LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                        LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                        LEFT JOIN analysis_details ad
+                            ON ad.analysis_id = a.id
+                           AND ad.ingredient_id = i.id
+                        WHERE a.id = :analysis_id
+                        ORDER BY i.name ASC
+                        """
+                    ), {"analysis_id": analysis_id}).mappings().all()
+
+                    matched_ingredients: List[Dict[str, Any]] = []
+                    for row in ingredient_rows:
+                        ingredient_id = row.get("id")
+                        if not ingredient_id:
+                            continue
+
+                        matched_ingredients.append({
+                            "id": ingredient_id,
+                            "name": row.get("name"),
+                            "risk_level": row.get("risk_level"),
+                            "function": row.get("ingredient_function"),
+                            "description": row.get("description"),
+                            "benefit": row.get("benefit"),
+                            "risk": row.get("risk"),
+                        })
 
                     return {
-                        "id": row.get("id"),
-                        "raw_text": row.get("raw_text"),
-                        "ai_analysis": ai_payload,
-                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                        "id": base_row.get("id"),
+                        "scan_id": base_row.get("scan_id"),
+                        "raw_text": base_row.get("extracted_text"),
+                        "summary": base_row.get("summary"),
+                        "recommendation": base_row.get("recommendation"),
+                        "status": base_row.get("status"),
+                        "matched_ingredient_count": len(matched_ingredients),
+                        "matched_ingredients": matched_ingredients,
+                        "user": {
+                            "id": base_row.get("user_id"),
+                            "name": base_row.get("user_name"),
+                            "email": base_row.get("user_email"),
+                        } if base_row.get("user_id") else None,
+                        "product": {
+                            "id": base_row.get("product_id"),
+                            "name": base_row.get("product_name"),
+                            "brand": base_row.get("product_brand"),
+                            "category": base_row.get("product_category"),
+                        } if base_row.get("product_id") else None,
+                        "created_at": self._to_iso_datetime(base_row.get("created_at")),
                     }
 
-                if not self._table_exists(conn, "analyses"):
+                if not self._table_exists(conn, "analysis_results"):
                     return None
 
-                base_row = conn.execute(text(
+                row = conn.execute(text(
                     """
-                    SELECT
-                        a.id,
-                        a.scan_id,
-                        a.summary,
-                        a.recommendation,
-                        a.status,
-                        a.created_at,
-                        s.extracted_text,
-                        u.id AS user_id,
-                        u.name AS user_name,
-                        u.email AS user_email,
-                        p.id AS product_id,
-                        p.name AS product_name,
-                        p.brand AS product_brand,
-                        p.category AS product_category
-                    FROM analyses a
-                    LEFT JOIN scans s ON s.id = a.scan_id
-                    LEFT JOIN users u ON u.id = s.user_id
-                    LEFT JOIN products p ON p.id = s.product_id
-                    WHERE a.id = :analysis_id
+                    SELECT id, raw_text, ai_analysis, created_at
+                    FROM analysis_results
+                    WHERE id = :analysis_id
                     LIMIT 1
                     """
                 ), {"analysis_id": analysis_id}).mappings().first()
 
-                if not base_row:
+                if not row:
                     return None
 
-                ingredient_rows = conn.execute(text(
-                    """
-                    SELECT
-                        i.id,
-                        i.name,
-                        i.risk_level,
-                        i.description,
-                        i.`function` AS ingredient_function,
-                        ad.benefit,
-                        ad.risk
-                    FROM analyses a
-                    LEFT JOIN scans s ON s.id = a.scan_id
-                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
-                    LEFT JOIN analysis_details ad
-                        ON ad.analysis_id = a.id
-                       AND ad.ingredient_id = i.id
-                    WHERE a.id = :analysis_id
-                    ORDER BY i.name ASC
-                    """
-                ), {"analysis_id": analysis_id}).mappings().all()
-
-                matched_ingredients: List[Dict[str, Any]] = []
-                for row in ingredient_rows:
-                    ingredient_id = row.get("id")
-                    if not ingredient_id:
-                        continue
-
-                    matched_ingredients.append({
-                        "id": ingredient_id,
-                        "name": row.get("name"),
-                        "risk_level": row.get("risk_level"),
-                        "function": row.get("ingredient_function"),
-                        "description": row.get("description"),
-                        "benefit": row.get("benefit"),
-                        "risk": row.get("risk"),
-                    })
+                ai_payload: Any = row.get("ai_analysis")
+                if isinstance(ai_payload, str):
+                    try:
+                        ai_payload = json.loads(ai_payload)
+                    except json.JSONDecodeError:
+                        pass
 
                 return {
-                    "id": base_row.get("id"),
-                    "scan_id": base_row.get("scan_id"),
-                    "raw_text": base_row.get("extracted_text"),
-                    "summary": base_row.get("summary"),
-                    "recommendation": base_row.get("recommendation"),
-                    "status": base_row.get("status"),
-                    "matched_ingredient_count": len(matched_ingredients),
-                    "matched_ingredients": matched_ingredients,
-                    "user": {
-                        "id": base_row.get("user_id"),
-                        "name": base_row.get("user_name"),
-                        "email": base_row.get("user_email"),
-                    } if base_row.get("user_id") else None,
-                    "product": {
-                        "id": base_row.get("product_id"),
-                        "name": base_row.get("product_name"),
-                        "brand": base_row.get("product_brand"),
-                        "category": base_row.get("product_category"),
-                    } if base_row.get("product_id") else None,
-                    "created_at": self._to_iso_datetime(base_row.get("created_at")),
+                    "id": row.get("id"),
+                    "raw_text": row.get("raw_text"),
+                    "ai_analysis": ai_payload,
+                    "created_at": self._to_iso_datetime(row.get("created_at")),
                 }
         except Exception as e:
             logger.error(f"Error fetching analysis detail for ID {analysis_id}: {e}")
