@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: skincare-backend
+    restart: always
+    volumes:
+      - .:/app
+    environment:
+      - TZ=Asia/Jakarta
+    network_mode: "host"
