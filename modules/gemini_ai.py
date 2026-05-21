@@ -384,4 +384,71 @@ FORMAT JAWABAN WAJIB JSON VALID (TANPA teks lain):
     raw_dict = result_holder["value"]
     if isinstance(raw_dict, dict):
         return {str(k).upper().strip(): str(v) for k, v in raw_dict.items()}
-    return {}
+    return {}
+
+
+def extract_ingredients_from_ocr(raw_text: str) -> List[str]:
+    """
+    Uses Gemini AI to intelligently extract ONLY the ingredients list from messy OCR text.
+    Ignores marketing fluff, directions, and warnings.
+    Returns a clean list of individual ingredient names.
+    """
+    if not API_KEY or GEMINI_SDK_MODE == "unavailable":
+        return []
+
+    if not raw_text or not raw_text.strip():
+        return []
+
+    prompt = f"""
+Anda adalah sistem pengekstrak data (Data Extractor) yang ahli dalam mengidentifikasi bahan/komposisi (ingredients) kosmetik dari teks hasil pemindaian OCR.
+
+Teks di bawah ini adalah hasil OCR dari kemasan suatu produk. Teks ini sangat berantakan dan mungkin memuat campuran antara instruksi pemakaian, peringatan, nama pabrik, dan daftar komposisi (ingredients).
+
+TUGAS ANDA:
+1. Temukan bagian yang berisi daftar "Ingredients" atau "Komposisi".
+2. Ekstrak HANYA nama-nama bahan tersebut.
+3. ABAIKAN teks lain seperti "Cara pakai", "Peringatan", "Netto", alamat pabrik, nomor BPOM, atau deskripsi produk.
+4. Jangan menambahkan nomor atau bullet point.
+
+TEKS OCR MENTAH:
+\"\"\"
+{raw_text.strip()}
+\"\"\"
+
+FORMAT JAWABAN WAJIB JSON ARRAY BERISI STRING (TANPA teks lain di luar JSON):
+[
+  "WATER",
+  "GLYCERIN",
+  "NIACINAMIDE"
+]
+""".strip()
+
+    result_holder = {"value": []}
+
+    def run_request() -> None:
+        try:
+            response_payload = _call_gemini(prompt)
+            text = response_payload.get("text", "").strip()
+            
+            # Clean up markdown JSON block if present
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+                
+            text = text.strip()
+            parsed = json.loads(text)
+            
+            if isinstance(parsed, list):
+                result_holder["value"] = [str(item).strip().upper() for item in parsed if str(item).strip()]
+        except Exception as exc:
+            print(f"Error extracting ingredients via AI: {exc}")
+
+    request_thread = threading.Thread(target=run_request, daemon=True)
+    request_thread.start()
+    request_thread.join(timeout=GEMINI_TIMEOUT_SECONDS)
+
+    return result_holder["value"]
+

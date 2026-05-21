@@ -97,6 +97,7 @@ class TextCleaner:
     def clean_and_tokenize(self, raw_text: str) -> List[str]:
         """
         Main pipeline to clean the raw OCR string and split it into ingredients.
+        Uses Gemini AI for extraction if available, falling back to regex.
         
         Args:
             raw_text: Raw string output from Tesseract.
@@ -110,6 +111,31 @@ class TextCleaner:
 
         logger.info("Cleaning raw OCR text")
 
+        # TRY GEMINI AI EXTRACTION FIRST
+        try:
+            from modules.gemini_ai import extract_ingredients_from_ocr
+            ai_ingredients = extract_ingredients_from_ocr(raw_text)
+            if ai_ingredients and len(ai_ingredients) > 0:
+                logger.info(f"Successfully extracted {len(ai_ingredients)} ingredients using AI.")
+                # Filter and normalize AI results
+                cleaned_ingredients = []
+                seen = set()
+                for ingredient in ai_ingredients:
+                    normalized = re.sub(r'\s+', ' ', ingredient).strip(' .-')
+                    if len(normalized) <= 1 or normalized.isnumeric():
+                        continue
+                    if normalized in seen:
+                        continue
+                    seen.add(normalized)
+                    cleaned_ingredients.append(normalized)
+                if cleaned_ingredients:
+                    return cleaned_ingredients
+            else:
+                logger.warning("AI extraction returned empty. Falling back to regex.")
+        except Exception as e:
+            logger.error(f"Failed to use AI for ingredient extraction: {e}. Falling back to regex.")
+
+        # FALLBACK: Regex based extraction
         ingredient_text = self.extract_ingredient_text(raw_text)
         if not ingredient_text:
             return []
@@ -130,14 +156,10 @@ class TextCleaner:
         # E.g., "INGREDIENTS: Water, Glycerin..."
         text = re.sub(r'(?i)INGREDIENTS?\s*[:\-]?\s*', '', text)
         
-        # 6. Some labels use '.' instead of ',' to separate ingredients by mistake
-        # This is a heuristic, adjust if it breaks valid names (like 'CI 77891.')
-        # For now, we mainly split by comma.
-        
-        # 7. Split by comma (standard INCI format)
+        # 6. Split by comma (standard INCI format)
         raw_ingredients = [item.strip() for item in re.split(r'[,;]', text)]
         
-        # 8. Filter and de-duplicate while preserving order
+        # 7. Filter and de-duplicate while preserving order
         cleaned_ingredients = []
         seen = set()
         for ingredient in raw_ingredients:
@@ -149,7 +171,7 @@ class TextCleaner:
             seen.add(normalized_ingredient)
             cleaned_ingredients.append(normalized_ingredient)
         
-        logger.debug(f"Successfully tokenized {len(cleaned_ingredients)} ingredients.")
+        logger.debug(f"Successfully tokenized {len(cleaned_ingredients)} ingredients via fallback.")
         return cleaned_ingredients
 
 # Helper function
