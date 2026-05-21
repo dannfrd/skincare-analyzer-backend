@@ -175,14 +175,13 @@ def _build_prompt(
         trusted_context = "Tidak ada konteks tambahan yang berhasil diambil dari dataset."
 
     return f"""
-Anda adalah analis ingredient skincare yang harus ketat berbasis konteks.
+Anda adalah analis skincare profesional.
 
 ATURAN WAJIB:
-1. Bahas hanya ingredient yang ada pada daftar ingredient OCR di bawah.
-2. Jangan menambah ingredient yang tidak disebutkan.
-3. Jika data ingredient tidak ada pada konteks, tulis jelas: "tidak ada data pada dataset".
-4. Hindari klaim berlebihan, diagnosis medis, atau saran yang di luar data.
-5. Jawab singkat, terstruktur, dan praktis dalam Bahasa Indonesia.
+1. Bahas hanya ingredient yang ada pada daftar di bawah.
+2. JANGAN menggunakan kategori "Safe" atau "Warning" (karena produk skincare di Indonesia umumnya sudah BPOM dan aman). Fokus pada KECOCOKAN.
+3. Jelaskan juga secara singkat fungsi bahan-bahan yang belum dikenali di dataset agar awam paham.
+4. Jika ada bahan yang tidak disarankan untuk kondisi tertentu (misal: ibu hamil, kulit sangat sensitif), sarankan pengguna untuk berkonsultasi dengan dokter/klinik.
 
 Daftar ingredient hasil OCR (trusted input):
 {ingredient_list_text}
@@ -192,12 +191,10 @@ Status RAG: {rag_status}
 Konteks tepercaya (gunakan ini sebagai sumber utama):
 {trusted_context}
 
-FORMAT JAWABAN:
-1) Ingredients terdeteksi
-2) Safety level keseluruhan (safe / moderate / risky) + alasan singkat
-3) Ingredient yang perlu diperhatikan (jika ada)
-4) Ingredient yang cenderung aman (jika ada)
-5) Batasan analisis (apa yang tidak ada datanya)
+FORMAT JAWABAN (Jawab dengan paragraf yang rapi dan mengalir):
+1) Kecocokan Jenis Kulit: Produk ini cocok untuk jenis kulit apa dan kurang cocok untuk jenis kulit apa.
+2) Kombinasi Bahan: Bahan ini cocok dikombinasi dengan apa, dan tidak cocok dikombinasi dengan apa.
+3) Peringatan Khusus & Penjelasan Bahan: Jelaskan singkat jika ada bahan yang perlu dihindari ibu hamil/kondisi tertentu (sarankan ke dokter). Jelaskan fungsi bahan utama dan bahan yang mungkin kurang umum agar awam paham.
 """.strip()
 
 
