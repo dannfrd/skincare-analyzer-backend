@@ -123,6 +123,7 @@ class DatabaseConnection:
                     })
                     scan_id = scan_insert.lastrowid
 
+                    self._resolve_ingredient_ids(conn, matched_ingredients)
                     self._save_scan_ingredient_links(conn, scan_id, matched_ingredients)
 
                     summary_text = self._extract_primary_text(ai_result, ["summary", "ringkasan", "result"])
@@ -182,6 +183,52 @@ class DatabaseConnection:
         except Exception as e:
             logger.error(f"Error saving analysis result: {e}")
             return None
+
+    def _resolve_ingredient_ids(self, conn, matched_ingredients: List[Dict[str, Any]]) -> None:
+        """Ensures all ingredients have a database ID by inserting missing ones."""
+        if not self._table_exists(conn, "ingredients"):
+            return
+            
+        for ingredient in matched_ingredients:
+            if isinstance(ingredient.get("id"), int):
+                continue
+                
+            name = str(ingredient.get("name") or ingredient.get("ocr_token_used") or "").strip().upper()
+            if not name:
+                continue
+                
+            # Coba cari dulu
+            existing = conn.execute(text(
+                "SELECT id FROM ingredients WHERE name = :name LIMIT 1"
+            ), {"name": name}).fetchone()
+            
+            if existing:
+                ingredient["id"] = existing.id if hasattr(existing, "id") else existing[0]
+                continue
+                
+            # Insert baru (Auto-discovery dari RAG / AI)
+            desc = str(ingredient.get("dataset_description") or ingredient.get("description") or "").strip()
+            func = str(ingredient.get("dataset_functions") or ingredient.get("function") or "Unknown").strip()
+            
+            risk_level = "low"
+            if ingredient.get("dataset_harmful"):
+                risk_level = "high"
+            
+            try:
+                insert = conn.execute(text(
+                    """
+                    INSERT INTO ingredients (name, description, `function`, risk_level, created_at)
+                    VALUES (:name, :desc, :func, :risk, NOW())
+                    """
+                ), {
+                    "name": name,
+                    "desc": desc,
+                    "func": func,
+                    "risk": risk_level
+                })
+                ingredient["id"] = insert.lastrowid
+            except Exception as e:
+                logger.error(f"Failed to auto-insert ingredient {name}: {e}")
 
     def _extract_primary_text(self, payload: Dict[str, Any], keys: List[str]) -> str:
         for key in keys:
@@ -271,17 +318,35 @@ class DatabaseConnection:
                 continue
 
             ingredient_name = str(ingredient.get("name") or "").upper()
-            function_text = str(ingredient.get("function") or "Unknown")
-            benefit_text = str(ingredient.get("description") or "")
+            
+            # Menggunakan data dari Qdrant (RAG) jika tersedia
+            dataset_functions = str(ingredient.get("dataset_functions") or "").strip()
+            function_text = dataset_functions if dataset_functions else str(ingredient.get("function") or "Unknown")
+            
+            dataset_description = str(ingredient.get("dataset_description") or "").strip()
+            benefit_text = dataset_description if dataset_description else str(ingredient.get("description") or "")
 
             risk_parts: List[str] = []
+            
+            # Harmful BPOM Check
+            if ingredient.get("dataset_harmful"):
+                risk_parts.append("BPOM BANNED/HARMFUL")
+                
+            dataset_bpom_warning = str(ingredient.get("dataset_bpom_warning") or "").strip()
+            if dataset_bpom_warning:
+                risk_parts.append(dataset_bpom_warning)
+                
+            dataset_warnings = str(ingredient.get("dataset_warnings") or "").strip()
+            if dataset_warnings:
+                risk_parts.append(f"Warning: {dataset_warnings}")
+
             risk_level = str(ingredient.get("risk_level") or "").strip()
             if risk_level:
                 risk_parts.append(f"Risk level: {risk_level}")
 
             warning_text = warning_map.get(ingredient_name)
             if warning_text:
-                risk_parts.append(warning_text)
+                risk_parts.append(f"AI Warning: {warning_text}")
 
             risk_text = " | ".join(risk_parts) if risk_parts else "No specific risk flagged"
 

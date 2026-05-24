@@ -1,30 +1,27 @@
-import csv
-import difflib
 import os
 import re
-from functools import lru_cache
 from typing import Any, Dict, List, Tuple
 
+from qdrant_client import QdrantClient
+from modules.embedding_utils import get_embedding
 
-# Dataset paths
-DATASET_DIR = os.path.join(
+# Qdrant Database Path
+QDRANT_DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
-    "data",
-    "dataset_scincare",
+    "qdrant_data"
 )
+COLLECTION_NAME = "skincare_ingredients"
 
-DATASET_DESCRIPTIONS = os.path.join(DATASET_DIR, "cosmetic_ingredients_train.csv")
-DATASET_CATEGORIES = os.path.join(DATASET_DIR, "ingredients_category.csv")
-DATASET_BPOM_HARMFUL = os.path.join(
-    DATASET_DIR,
-    "Database Kosmetik Mengandung Bahan Berbahaya - Direktorat Standardisasi Obat Tradisional, Suplemen Kesehatan dan Kosmetik.csv"
-)
-
-
-def _normalize_name(value: str) -> str:
-    """Normalize ingredient name for matching"""
-    normalized = re.sub(r"[^A-Za-z0-9\s\-\+\./]", " ", value.upper())
-    return re.sub(r"\s+", " ", normalized).strip()
+# Initialize client lazily or on module load
+try:
+    _qdrant_client = QdrantClient(path=QDRANT_DATA_DIR)
+    # check if collection exists
+    if not _qdrant_client.collection_exists(COLLECTION_NAME):
+        print(f"Warning: Qdrant collection '{COLLECTION_NAME}' does not exist. Run qdrant_setup.py first.")
+        _qdrant_client = None
+except Exception as e:
+    print(f"Error initializing Qdrant client: {e}")
+    _qdrant_client = None
 
 
 def _clip(value: str, max_len: int = 220) -> str:
@@ -35,247 +32,60 @@ def _clip(value: str, max_len: int = 220) -> str:
     return compact[: max_len - 3].rstrip() + "..."
 
 
-@lru_cache(maxsize=1)
-def _load_descriptions_dataset() -> Dict[str, Dict[str, str]]:
-    """Load cosmetic_ingredients_train.csv - Detailed descriptions"""
-    dataset_path = os.getenv("RAG_DATASET_DESCRIPTIONS", DATASET_DESCRIPTIONS)
-    if not os.path.exists(dataset_path):
-        return {}
-
-    knowledge: Dict[str, Dict[str, str]] = {}
-    try:
-        with open(dataset_path, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                name = str(row.get("ingredient") or row.get("name") or row.get("Name") or "").strip()
-                if not name:
-                    continue
-
-                key = _normalize_name(name)
-                if not key or key in knowledge:
-                    continue
-
-                description = str(row.get("description") or "").strip()
-                
-                knowledge[key] = {
-                    "name": name.strip(),
-                    "description": description,
-                    "source": "descriptions_dataset"
-                }
-    except Exception as e:
-        print(f"Error loading descriptions dataset: {e}")
-    
-    return knowledge
-
-
-@lru_cache(maxsize=1)
-def _load_categories_dataset() -> Dict[str, Dict[str, str]]:
-    """Load ingredients_category.csv - Functions, warnings, origin"""
-    dataset_path = os.getenv("RAG_DATASET_CATEGORIES", DATASET_CATEGORIES)
-    if not os.path.exists(dataset_path):
-        return {}
-
-    knowledge: Dict[str, Dict[str, str]] = {}
-    try:
-        with open(dataset_path, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                name = str(row.get("ingredient_name") or "").strip()
-                if not name:
-                    continue
-
-                key = _normalize_name(name)
-                if not key or key in knowledge:
-                    continue
-
-                function1 = str(row.get("function1") or "").strip()
-                function2 = str(row.get("function2") or "").strip()
-                warning1 = str(row.get("warning1") or "").strip()
-                warning2 = str(row.get("warning2") or "").strip()
-                origin = str(row.get("ingredient_origin") or "").strip()
-                charge = str(row.get("ingredient_charge") or "").strip()
-
-                functions = [f for f in [function1, function2] if f]
-                warnings = [w for w in [warning1, warning2] if w]
-
-                knowledge[key] = {
-                    "name": name.strip(),
-                    "functions": ", ".join(functions) if functions else "",
-                    "warnings": ", ".join(warnings) if warnings else "",
-                    "origin": origin,
-                    "charge": charge,
-                    "source": "categories_dataset"
-                }
-    except Exception as e:
-        print(f"Error loading categories dataset: {e}")
-    
-    return knowledge
-
-
-@lru_cache(maxsize=1)
-def _load_bpom_harmful_dataset() -> Dict[str, Dict[str, str]]:
-    """Load BPOM harmful ingredients dataset"""
-    dataset_path = os.getenv("RAG_DATASET_BPOM", DATASET_BPOM_HARMFUL)
-    if not os.path.exists(dataset_path):
-        return {}
-
-    harmful_ingredients: Dict[str, Dict[str, str]] = {}
-    try:
-        with open(dataset_path, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                # Extract harmful ingredient from "Kandungan Bahan Berbahaya/Dilarang" column
-                harmful_content = str(row.get("Kandungan Bahan Berbahaya/Dilarang") or "").strip()
-                if not harmful_content:
-                    continue
-
-                # Normalize and store
-                key = _normalize_name(harmful_content)
-                if not key:
-                    continue
-
-                product_name = str(row.get("Nama Produk") or "").strip()
-                warning_number = str(row.get("Nomor Surat Public Warning") or "").strip()
-
-                # Store or append to existing
-                if key not in harmful_ingredients:
-                    harmful_ingredients[key] = {
-                        "name": harmful_content,
-                        "harmful": True,
-                        "bpom_warning": "BPOM: Bahan berbahaya/dilarang",
-                        "found_in_products": [product_name] if product_name else [],
-                        "warning_number": warning_number,
-                        "source": "bpom_harmful_dataset"
-                    }
-                else:
-                    # Append product if not already listed
-                    if product_name and product_name not in harmful_ingredients[key]["found_in_products"]:
-                        harmful_ingredients[key]["found_in_products"].append(product_name)
-    except Exception as e:
-        print(f"Error loading BPOM harmful dataset: {e}")
-    
-    return harmful_ingredients
-
-
-def _merge_ingredient_data(
-    descriptions: Dict[str, Dict[str, str]],
-    categories: Dict[str, Dict[str, str]],
-    bpom_harmful: Dict[str, Dict[str, str]],
-    ingredient_key: str
-) -> Dict[str, Any]:
-    """Merge data from all 3 datasets for a single ingredient"""
-    merged = {
-        "name": "",
-        "description": "",
-        "functions": "",
-        "warnings": "",
-        "origin": "",
-        "charge": "",
-        "harmful": False,
-        "bpom_warning": "",
-        "sources": []
-    }
-
-    # Get data from descriptions dataset
-    if ingredient_key in descriptions:
-        data = descriptions[ingredient_key]
-        merged["name"] = data["name"]
-        merged["description"] = data["description"]
-        merged["sources"].append("descriptions")
-
-    # Get data from categories dataset
-    if ingredient_key in categories:
-        data = categories[ingredient_key]
-        if not merged["name"]:
-            merged["name"] = data["name"]
-        merged["functions"] = data["functions"]
-        merged["warnings"] = data["warnings"]
-        merged["origin"] = data["origin"]
-        merged["charge"] = data["charge"]
-        merged["sources"].append("categories")
-
-    # Get data from BPOM harmful dataset
-    if ingredient_key in bpom_harmful:
-        data = bpom_harmful[ingredient_key]
-        if not merged["name"]:
-            merged["name"] = data["name"]
-        merged["harmful"] = True
-        merged["bpom_warning"] = data["bpom_warning"]
-        merged["sources"].append("bpom_harmful")
-
-    return merged
-
-
 def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
     """
-    Get simple description for a single ingredient from datasets.
-    Returns a dictionary with name, simple_description, functions, warnings, etc.
+    Get simple description for a single ingredient from Qdrant.
     """
-    if not ingredient_name or not ingredient_name.strip():
+    if not ingredient_name or not ingredient_name.strip() or not _qdrant_client:
         return {}
-    
-    # Load all 3 datasets
-    descriptions = _load_descriptions_dataset()
-    categories = _load_categories_dataset()
-    bpom_harmful = _load_bpom_harmful_dataset()
-    
-    normalized_name = _normalize_name(ingredient_name)
-    
-    # Try exact match first
-    all_keys = set()
-    all_keys.update(descriptions.keys())
-    all_keys.update(categories.keys())
-    all_keys.update(bpom_harmful.keys())
-    
-    matched_key = ""
-    if normalized_name in all_keys:
-        matched_key = normalized_name
-    else:
-        # Try fuzzy match
-        fuzzy_cutoff = float(os.getenv("RAG_FUZZY_THRESHOLD", "0.84"))
-        close_matches = difflib.get_close_matches(
-            normalized_name,
-            list(all_keys),
-            n=1,
-            cutoff=fuzzy_cutoff,
+        
+    try:
+        vector = get_embedding(ingredient_name)
+        search_result = _qdrant_client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=vector,
+            limit=1
         )
-        if close_matches:
-            matched_key = close_matches[0]
-    
-    if not matched_key:
-        return {}
-    
-    # Merge data from all 3 datasets
-    merged = _merge_ingredient_data(descriptions, categories, bpom_harmful, matched_key)
-    
-    # Extract simple description (first 200 chars of full description)
-    full_desc = merged.get("description", "")
-    if full_desc:
-        # Extract first sentence or first 200 chars
-        sentences = full_desc.split(". ")
-        if sentences:
-            simple_desc = sentences[0] + "."
-            if len(simple_desc) > 200:
-                simple_desc = simple_desc[:197] + "..."
+        if not search_result:
+            return {}
+            
+        best_hit = search_result[0]
+        # We can set a score threshold to ensure relevance, e.g. 0.70
+        if best_hit.score < 0.70:
+            return {}
+            
+        payload = best_hit.payload
+        if not payload:
+            return {}
+            
+        # Extract simple description (first 200 chars of full description)
+        full_desc = payload.get("description", "")
+        if full_desc:
+            sentences = full_desc.split(". ")
+            if sentences:
+                simple_desc = sentences[0] + "."
+                if len(simple_desc) > 200:
+                    simple_desc = simple_desc[:197] + "..."
+            else:
+                simple_desc = full_desc[:197] + "..." if len(full_desc) > 200 else full_desc
         else:
-            simple_desc = full_desc[:197] + "..." if len(full_desc) > 200 else full_desc
-    else:
-        simple_desc = ""
-    
-    # Build result
-    result = {
-        "name": merged.get("name", ingredient_name),
-        "simple_description": simple_desc,
-        "functions": merged.get("functions", ""),
-        "warnings": merged.get("warnings", ""),
-        "origin": merged.get("origin", ""),
-        "harmful": merged.get("harmful", False),
-        "bpom_warning": merged.get("bpom_warning", ""),
-        "sources": merged.get("sources", []),
-        "found_in_dataset": True
-    }
-    
-    return result
+            simple_desc = ""
+            
+        return {
+            "name": payload.get("name", ingredient_name),
+            "simple_description": simple_desc,
+            "functions": payload.get("functions", ""),
+            "warnings": payload.get("warnings", ""),
+            "origin": payload.get("origin", ""),
+            "harmful": payload.get("harmful", False),
+            "bpom_warning": payload.get("bpom_warning", ""),
+            "sources": payload.get("sources", []),
+            "found_in_dataset": True,
+            "score": best_hit.score
+        }
+    except Exception as e:
+        print(f"Error querying Qdrant for {ingredient_name}: {e}")
+        return {}
 
 
 def build_rag_context(
@@ -283,120 +93,87 @@ def build_rag_context(
     top_k: int | None = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """
-    Build RAG context from ALL 3 datasets:
-    1. cosmetic_ingredients_train.csv - Detailed descriptions
-    2. ingredients_category.csv - Functions, warnings, origin
-    3. Database BPOM - Harmful ingredients
+    Build RAG context from Qdrant Local Database.
     """
     cleaned_tokens = [token.strip() for token in ingredient_tokens if token and token.strip()]
     if not cleaned_tokens:
         return "", {"enabled": False, "reason": "empty_tokens", "items": []}
+        
+    if not _qdrant_client:
+        return "", {"enabled": False, "reason": "qdrant_client_unavailable", "items": []}
 
-    # Load all 3 datasets
-    descriptions = _load_descriptions_dataset()
-    categories = _load_categories_dataset()
-    bpom_harmful = _load_bpom_harmful_dataset()
-
-    if not descriptions and not categories and not bpom_harmful:
-        return "", {
-            "enabled": False,
-            "reason": "all_datasets_unavailable",
-            "items": [],
-        }
-
-    fuzzy_cutoff = float(os.getenv("RAG_FUZZY_THRESHOLD", "0.84"))
     max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "12"))
-
-    # Combine all keys for fuzzy matching
-    all_keys = set()
-    all_keys.update(descriptions.keys())
-    all_keys.update(categories.keys())
-    all_keys.update(bpom_harmful.keys())
-    known_keys = list(all_keys)
-
+    
     selected_items: List[Dict[str, Any]] = []
-    selected_keys = set()
+    seen_names = set()
 
     for token in cleaned_tokens:
-        normalized_token = _normalize_name(token)
-        if not normalized_token:
-            continue
-
-        matched_key = ""
-        match_type = ""
-
-        # Try exact match first
-        if normalized_token in all_keys:
-            matched_key = normalized_token
-            match_type = "exact"
-        else:
-            # Try fuzzy match
-            close_matches = difflib.get_close_matches(
-                normalized_token,
-                known_keys,
-                n=1,
-                cutoff=fuzzy_cutoff,
+        try:
+            vector = get_embedding(token)
+            search_result = _qdrant_client.search(
+                collection_name=COLLECTION_NAME,
+                query_vector=vector,
+                limit=1
             )
-            if close_matches:
-                matched_key = close_matches[0]
-                match_type = "fuzzy"
-
-        if not matched_key or matched_key in selected_keys:
+            
+            if not search_result:
+                continue
+                
+            best_hit = search_result[0]
+            # Threshold to prevent bad semantic matches
+            if best_hit.score < 0.70:
+                continue
+                
+            payload = best_hit.payload
+            if not payload:
+                continue
+                
+            name = payload.get("name", "")
+            
+            if name.upper() in seen_names:
+                continue
+                
+            seen_names.add(name.upper())
+            
+            item_data = dict(payload)
+            item_data["token"] = token
+            item_data["match_type"] = f"semantic (score: {best_hit.score:.2f})"
+            selected_items.append(item_data)
+            
+            if len(selected_items) >= max_items:
+                break
+        except Exception as e:
+            print(f"Error querying token {token}: {e}")
             continue
-
-        selected_keys.add(matched_key)
-        
-        # Merge data from all 3 datasets
-        merged_data = _merge_ingredient_data(
-            descriptions, categories, bpom_harmful, matched_key
-        )
-        merged_data["token"] = token
-        merged_data["match_type"] = match_type
-        
-        selected_items.append(merged_data)
-
-        if len(selected_items) >= max_items:
-            break
 
     if not selected_items:
         return "", {
             "enabled": True,
             "reason": "no_retrieval_match",
-            "datasets_loaded": {
-                "descriptions": len(descriptions),
-                "categories": len(categories),
-                "bpom_harmful": len(bpom_harmful)
-            },
             "items": [],
         }
 
     # Build context string
-    lines = ["Dataset context (3 trusted sources - descriptions, categories, BPOM):"]
+    lines = ["Dataset context (Semantic Search Qdrant):"]
     
     for index, item in enumerate(selected_items, start=1):
         parts = []
         
-        # Add description if available
         if item.get("description"):
             parts.append(f"deskripsi: {_clip(item['description'], 180)}")
         
-        # Add functions if available
         if item.get("functions"):
             parts.append(f"fungsi: {item['functions']}")
         
-        # Add warnings if available
         if item.get("warnings"):
             parts.append(f"⚠️ peringatan: {item['warnings']}")
         
-        # Add origin and charge if available
         if item.get("origin"):
             parts.append(f"asal: {item['origin']}")
         
-        # Add BPOM warning if harmful
         if item.get("harmful"):
             parts.append(f"🚨 BPOM: BAHAN BERBAHAYA/DILARANG")
         
-        # Add sources
         sources_str = ", ".join(item.get("sources", []))
         
         context_payload = " | ".join(parts) if parts else "data terbatas"
@@ -407,10 +184,5 @@ def build_rag_context(
     return "\n".join(lines), {
         "enabled": True,
         "reason": "ok",
-        "datasets_loaded": {
-            "descriptions": len(descriptions),
-            "categories": len(categories),
-            "bpom_harmful": len(bpom_harmful)
-        },
         "items": selected_items,
     }

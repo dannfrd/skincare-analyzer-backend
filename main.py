@@ -439,37 +439,19 @@ def process_text_analysis(
 
 
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
-    score = expert_report.get("overall_score", 0)
-    classification = expert_report.get("classification", "Unknown")
     total_identified = expert_report.get("total_ingredients_identified", 0)
-    warning_count = expert_report.get("warnings_found", 0)
+    unknown_count = expert_report.get("total_unknown", 0)
     return (
-        f"Skor keamanan {score}/100 ({classification}). "
-        f"Bahan dikenali: {total_identified}. Peringatan: {warning_count}."
+        f"Bahan dikenali: {total_identified}. Belum dikenali: {unknown_count}."
     )
 
 
 def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> str:
-    flags = expert_report.get("flags") if isinstance(expert_report, dict) else []
-    if isinstance(flags, list) and flags:
-        first_flag = flags[0] if isinstance(flags[0], dict) else {}
-        ingredient = first_flag.get("ingredient")
-        message = first_flag.get("message")
-        if ingredient and message:
-            return f"Perhatikan ingredient {ingredient}: {message}"
-
-    unknown_count = expert_report.get("total_unknown", 0) if isinstance(expert_report, dict) else 0
-    if isinstance(unknown_count, int) and unknown_count > 0:
-        return (
-            f"Ada {unknown_count} bahan yang belum dikenali. "
-            "Lengkapi master ingredients agar analisis lebih akurat."
-        )
-
     cleaned_ai = (ai_text or "").strip()
     if cleaned_ai:
-        return cleaned_ai[:260]
+        return cleaned_ai
 
-    return "Secara umum formula cukup aman, tetap lakukan patch test sebelum pemakaian rutin."
+    return "Secara umum formula cukup aman, tetap perhatikan kecocokan dengan jenis kulit Anda."
 
 
 def require_monitoring_api_key(x_api_key: str | None = Header(default=None)):

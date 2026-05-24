@@ -77,7 +77,9 @@ class ExpertSystem:
         unknown_ingredients = []
         
         for ing in matched_ingredients:
-            if ing.get('status') == 'Unknown':
+            is_unknown_db = ing.get('status') == 'Unknown'
+            is_unknown_rag = not ing.get('found_in_dataset', False)
+            if is_unknown_db and is_unknown_rag:
                 unknown_ingredients.append(ing.get('name'))
                 continue
                 
