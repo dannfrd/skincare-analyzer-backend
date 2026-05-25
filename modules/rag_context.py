@@ -50,8 +50,8 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
             return {}
             
         best_hit = search_result[0]
-        # We can set a score threshold to ensure relevance, e.g. 0.70
-        if best_hit.score < 0.70:
+        # We can set a score threshold to ensure relevance, e.g. 0.55
+        if best_hit.score < 0.55:
             return {}
             
         payload = best_hit.payload
@@ -79,6 +79,8 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
             "origin": payload.get("origin", ""),
             "harmful": payload.get("harmful", False),
             "bpom_warning": payload.get("bpom_warning", ""),
+            "rating": payload.get("rating", ""),
+            "found_in_products": payload.get("found_in_products", []),
             "sources": payload.get("sources", []),
             "found_in_dataset": True,
             "score": best_hit.score
@@ -121,7 +123,7 @@ def build_rag_context(
                 
             best_hit = search_result[0]
             # Threshold to prevent bad semantic matches
-            if best_hit.score < 0.70:
+            if best_hit.score < 0.55:
                 continue
                 
             payload = best_hit.payload
@@ -159,6 +161,9 @@ def build_rag_context(
     for index, item in enumerate(selected_items, start=1):
         parts = []
         
+        if item.get("rating"):
+            parts.append(f"rating: {item['rating']}")
+            
         if item.get("description"):
             parts.append(f"deskripsi: {_clip(item['description'], 180)}")
         
@@ -173,6 +178,10 @@ def build_rag_context(
         
         if item.get("harmful"):
             parts.append(f"🚨 BPOM: BAHAN BERBAHAYA/DILARANG")
+            
+        if item.get("found_in_products"):
+            products_str = ", ".join(item["found_in_products"])
+            parts.append(f"contoh produk: {products_str}")
         
         sources_str = ", ".join(item.get("sources", []))
         
