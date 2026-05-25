@@ -19,6 +19,8 @@ DATASET_BPOM_HARMFUL = os.path.join(
     DATASET_DIR,
     "Database Kosmetik Mengandung Bahan Berbahaya - Direktorat Standardisasi Obat Tradisional, Suplemen Kesehatan dan Kosmetik.csv"
 )
+DATASET_INCIDECODER_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_ingredients.csv")
+DATASET_INCIDECODER_PRODUCTS = os.path.join(DATASET_DIR, "incidecoder_products.csv")
 
 QDRANT_DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -155,6 +157,82 @@ def _load_bpom_harmful_dataset() -> Dict[str, Dict[str, str]]:
     return harmful_ingredients
 
 
+def _load_incidecoder_ingredients_dataset() -> Dict[str, Dict[str, str]]:
+    if not os.path.exists(DATASET_INCIDECODER_INGREDIENTS):
+        print(f"Warning: {DATASET_INCIDECODER_INGREDIENTS} not found.")
+        return {}
+
+    knowledge: Dict[str, Dict[str, str]] = {}
+    try:
+        with open(DATASET_INCIDECODER_INGREDIENTS, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                name = str(row.get("inci_name") or "").strip()
+                if not name:
+                    continue
+                
+                key = _normalize_name(name)
+                if not key:
+                    continue
+                
+                rating = str(row.get("rating") or "").strip()
+                functions = str(row.get("functions") or "").strip()
+                
+                # Check for "description;;" column due to possible CSV formatting quirks
+                description = str(row.get("description") or row.get("description;;") or "").strip()
+                if description.endswith(";;"):
+                    description = description[:-2].strip()
+                
+                knowledge[key] = {
+                    "name": name,
+                    "rating": rating,
+                    "functions": functions,
+                    "description": description,
+                    "source": "incidecoder"
+                }
+    except Exception as e:
+        print(f"Error loading INCIDecoder ingredients: {e}")
+    return knowledge
+
+
+def _load_incidecoder_products_dataset() -> Dict[str, List[str]]:
+    if not os.path.exists(DATASET_INCIDECODER_PRODUCTS):
+        print(f"Warning: {DATASET_INCIDECODER_PRODUCTS} not found.")
+        return {}
+
+    product_mapping: Dict[str, List[str]] = {}
+    try:
+        with open(DATASET_INCIDECODER_PRODUCTS, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                product_name = str(row.get("product_name") or "").strip()
+                brand = str(row.get("brand") or "").strip()
+                ingredients_raw = str(row.get("ingredient_raw") or "").strip()
+                
+                if not product_name or not ingredients_raw:
+                    continue
+                
+                full_product_name = f"{brand} - {product_name}" if brand else product_name
+                ingredient_list = [i.strip() for i in ingredients_raw.split(",")]
+                
+                for ingredient in ingredient_list:
+                    key = _normalize_name(ingredient)
+                    if not key:
+                        continue
+                    
+                    if key not in product_mapping:
+                        product_mapping[key] = []
+                    
+                    if full_product_name not in product_mapping[key]:
+                        # Limit to 5 products per ingredient
+                        if len(product_mapping[key]) < 5:
+                            product_mapping[key].append(full_product_name)
+    except Exception as e:
+        print(f"Error loading INCIDecoder products: {e}")
+    
+    return product_mapping
+
+
 def setup_qdrant():
     print("Initializing Qdrant Setup...")
     
@@ -163,6 +241,8 @@ def setup_qdrant():
     descriptions = _load_descriptions_dataset()
     categories = _load_categories_dataset()
     bpom_harmful = _load_bpom_harmful_dataset()
+    inci_ingredients = _load_incidecoder_ingredients_dataset()
+    inci_products = _load_incidecoder_products_dataset()
 
     # Merge ingredients
     print("Merging dataset entries...")
@@ -170,6 +250,7 @@ def setup_qdrant():
     all_keys.update(descriptions.keys())
     all_keys.update(categories.keys())
     all_keys.update(bpom_harmful.keys())
+    all_keys.update(inci_ingredients.keys())
 
     merged_data_list = []
     
@@ -183,20 +264,41 @@ def setup_qdrant():
             "charge": "",
             "harmful": False,
             "bpom_warning": "",
+            "rating": "",
+            "found_in_products": [],
             "sources": []
         }
 
-        if key in descriptions:
-            data = descriptions[key]
+        if key in inci_ingredients:
+            data = inci_ingredients[key]
             merged["name"] = data["name"]
             merged["description"] = data["description"]
+            merged["functions"] = data["functions"]
+            merged["rating"] = data["rating"]
+            merged["sources"].append("incidecoder")
+
+        if key in descriptions:
+            data = descriptions[key]
+            if not merged["name"]:
+                merged["name"] = data["name"]
+            
+            if not merged["description"]:
+                merged["description"] = data["description"]
+            elif data["description"] and data["description"] not in merged["description"]:
+                merged["description"] += f"\n\n[Other Info]: {data['description']}"
+            
             merged["sources"].append("descriptions")
 
         if key in categories:
             data = categories[key]
             if not merged["name"]:
                 merged["name"] = data["name"]
-            merged["functions"] = data["functions"]
+            
+            if not merged["functions"]:
+                merged["functions"] = data["functions"]
+            elif data["functions"] and data["functions"] not in merged["functions"]:
+                merged["functions"] += f", {data['functions']}"
+                
             merged["warnings"] = data["warnings"]
             merged["origin"] = data["origin"]
             merged["charge"] = data["charge"]
@@ -209,6 +311,9 @@ def setup_qdrant():
             merged["harmful"] = True
             merged["bpom_warning"] = data["bpom_warning"]
             merged["sources"].append("bpom_harmful")
+            
+        if key in inci_products:
+            merged["found_in_products"] = inci_products[key]
 
         merged_data_list.append(merged)
     
@@ -234,12 +339,17 @@ def setup_qdrant():
     
     for idx, item in enumerate(merged_data_list, start=1):
         doc_text = f"Ingredient: {item['name']}\n"
-        if item['description']:
+        if item.get('rating'):
+            doc_text += f"Rating: {item['rating']}\n"
+        if item.get('description'):
             doc_text += f"Description: {_clip(item['description'], 300)}\n"
-        if item['functions']:
+        if item.get('functions'):
             doc_text += f"Functions: {item['functions']}\n"
-        if item['harmful']:
+        if item.get('harmful'):
             doc_text += f"Status: HARMFUL (BPOM Banned)\n"
+        if item.get('found_in_products'):
+            products_str = ", ".join(item['found_in_products'])
+            doc_text += f"Found in products: {products_str}\n"
 
         print(f"Generating embedding {idx}/{len(merged_data_list)}: {item['name'][:30].encode('ascii', 'ignore').decode('ascii')}")
         try:
