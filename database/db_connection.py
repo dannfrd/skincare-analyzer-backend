@@ -1,8 +1,10 @@
 import os
+import re
 import json
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+
 
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -183,50 +185,84 @@ class DatabaseConnection:
             return None
 
     def _resolve_ingredient_ids(self, conn, matched_ingredients: List[Dict[str, Any]]) -> None:
-        """Ensures all ingredients have a database ID by inserting missing ones."""
+        """
+        Ensures ALL ingredients (including unknown ones) have a database ID
+        by looking them up or inserting them into the ingredients table.
+        This makes every scanned ingredient individually trackable.
+        """
         if not self._table_exists(conn, "ingredients"):
             return
-            
+
         for ingredient in matched_ingredients:
+            # Already resolved
             if isinstance(ingredient.get("id"), int):
                 continue
-                
-            name = str(ingredient.get("name") or ingredient.get("ocr_token_used") or "").strip().upper()
-            if not name:
+
+            # Determine canonical name
+            name = str(
+                ingredient.get("name") or ingredient.get("ocr_token_used") or ""
+            ).strip().upper()
+            import re as _re
+            name = _re.sub(r'^[^A-Z0-9]+|[^A-Z0-9\s\-\(\)]+$', '', name).strip()
+
+            if not name or len(name) < 2:
                 continue
-                
-            # Coba cari dulu
-            existing = conn.execute(text(
-                "SELECT id FROM ingredients WHERE name = :name LIMIT 1"
-            ), {"name": name}).fetchone()
-            
+
+            # 1. Try to find existing row
+            existing = conn.execute(
+                text("SELECT id FROM ingredients WHERE name = :name LIMIT 1"),
+                {"name": name},
+            ).fetchone()
+
             if existing:
                 ingredient["id"] = existing.id if hasattr(existing, "id") else existing[0]
+                logger.debug(f"Resolved existing ingredient: {name} -> id={ingredient['id']}")
                 continue
-                
-            # Insert baru (Auto-discovery dari RAG / AI)
-            desc = str(ingredient.get("dataset_description") or ingredient.get("description") or "").strip()
-            func = str(ingredient.get("dataset_functions") or ingredient.get("function") or "Unknown").strip()
-            
-            risk_level = "low"
+
+            # 2. Auto-insert (including unknown / unmatched ingredients from OCR)
+            desc = str(
+                ingredient.get("dataset_description") or ingredient.get("description") or ""
+            ).strip()
+            func = str(
+                ingredient.get("dataset_functions") or ingredient.get("function") or ""
+            ).strip() or "Unknown"
+
+            # Determine risk level
+            status = str(ingredient.get("status") or "").strip().lower()
             if ingredient.get("dataset_harmful"):
                 risk_level = "high"
-            
+            elif status == "unknown":
+                risk_level = "unknown"
+            else:
+                risk_level = "low"
+
             try:
-                insert = conn.execute(text(
-                    """
-                    INSERT INTO ingredients (name, description, `function`, risk_level, created_at)
-                    VALUES (:name, :desc, :func, :risk, NOW())
-                    """
-                ), {
-                    "name": name,
-                    "desc": desc,
-                    "func": func,
-                    "risk": risk_level
-                })
+                insert = conn.execute(
+                    text(
+                        """
+                        INSERT INTO ingredients (name, description, `function`, risk_level, created_at)
+                        VALUES (:name, :desc, :func, :risk, NOW())
+                        """
+                    ),
+                    {
+                        "name": name,
+                        "desc": desc,
+                        "func": func,
+                        "risk": risk_level,
+                    },
+                )
                 ingredient["id"] = insert.lastrowid
+                logger.info(f"Auto-inserted ingredient: {name} (risk={risk_level}) -> id={ingredient['id']}")
             except Exception as e:
-                logger.error(f"Failed to auto-insert ingredient {name}: {e}")
+                # Most likely a duplicate race condition - try fetching again
+                logger.warning(f"Insert failed for {name}, retrying fetch: {e}")
+                retry = conn.execute(
+                    text("SELECT id FROM ingredients WHERE name = :name LIMIT 1"),
+                    {"name": name},
+                ).fetchone()
+                if retry:
+                    ingredient["id"] = retry.id if hasattr(retry, "id") else retry[0]
+
 
     def _extract_primary_text(self, payload: Dict[str, Any], keys: List[str]) -> str:
         for key in keys:
