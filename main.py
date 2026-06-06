@@ -107,7 +107,10 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
 
-    with db.engine.connect() as conn:
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.begin() as conn:
         user = conn.execute(
             text("SELECT id FROM users WHERE email = :email"),
             {"email": user_email}
@@ -116,36 +119,40 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
             raise HTTPException(status_code=404, detail="User not found")
         user_id = user.id if hasattr(user, 'id') else user[0]
 
-        # Cek apakah analysis_id valid
-
+        # Analysis harus dimiliki user yang sedang login.
         analysis = conn.execute(
-            text("SELECT id FROM analyses WHERE id = :analysis_id"),
-            {"analysis_id": request_data.analysis_id}
-        ).fetchone()
-        if not analysis:
-            raise HTTPException(status_code=404, detail="Analysis ID not found in analyses table")
-
-        # Hindari duplikasi save untuk analysis yang sama
-        existing = conn.execute(
             text("""
-                SELECT id FROM user_histories
-                WHERE user_id = :user_id AND analysis_id = :analysis_id
+                SELECT a.id
+                FROM analyses a
+                INNER JOIN scans s ON s.id = a.scan_id
+                WHERE a.id = :analysis_id
+                  AND s.user_id = :user_id
                 LIMIT 1
             """),
-            {"user_id": user_id, "analysis_id": request_data.analysis_id}
+            {
+                "analysis_id": request_data.analysis_id,
+                "user_id": user_id,
+            }
         ).fetchone()
-        if existing:
-            return {"message": "Analisis sudah ada di histori."}
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail="Analysis not found or does not belong to this user",
+            )
 
-        # Simpan ke tabel user_histories
-        save_query = text("""
+        conn.execute(text("""
             INSERT INTO user_histories (user_id, analysis_id)
             VALUES (:user_id, :analysis_id)
-        """)
-        conn.execute(save_query, {"user_id": user_id, "analysis_id": request_data.analysis_id})
-        conn.commit()
+            ON DUPLICATE KEY UPDATE viewed_at = viewed_at
+        """), {
+            "user_id": user_id,
+            "analysis_id": request_data.analysis_id,
+        })
 
-    return {"message": "Daftar histori telah berhasil ditambahkan."}
+    return {
+        "message": "Daftar histori telah berhasil ditambahkan.",
+        "analysis_id": request_data.analysis_id,
+    }
 
 # model request dari Flutter
 class IngredientRequest(BaseModel):

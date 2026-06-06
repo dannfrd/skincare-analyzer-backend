@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS scan_ingredients (
     id INT AUTO_INCREMENT PRIMARY KEY,
     scan_id INT NOT NULL,
     ingredient_id INT NOT NULL,
+    position_index INT NOT NULL DEFAULT 0,
+    ocr_token VARCHAR(255),
+    match_status ENUM('matched', 'unknown') NOT NULL DEFAULT 'matched',
+    match_confidence DECIMAL(5,4),
 
     CONSTRAINT fk_si_scan
         FOREIGN KEY (scan_id) REFERENCES scans(id)
@@ -87,6 +91,12 @@ CREATE TABLE IF NOT EXISTS analyses (
     summary TEXT,
     recommendation TEXT,
     status VARCHAR(50) DEFAULT 'pending',
+    overall_score DECIMAL(5,2),
+    classification VARCHAR(100),
+    warnings_count INT NOT NULL DEFAULT 0,
+    unknown_count INT NOT NULL DEFAULT 0,
+    ai_model VARCHAR(100),
+    ai_output LONGTEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_analysis_scan
@@ -111,7 +121,10 @@ CREATE TABLE IF NOT EXISTS analysis_details (
 
     CONSTRAINT fk_ad_ingredient
         FOREIGN KEY (ingredient_id) REFERENCES ingredients(id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT unique_analysis_ingredient
+        UNIQUE (analysis_id, ingredient_id)
 );
 
 -- =========================
@@ -129,8 +142,59 @@ CREATE TABLE IF NOT EXISTS user_histories (
 
     CONSTRAINT fk_uh_analysis
         FOREIGN KEY (analysis_id) REFERENCES analyses(id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT unique_user_analysis
+        UNIQUE (user_id, analysis_id)
 );
+
+-- =========================
+-- UPGRADE EXISTING DATABASE
+-- Statements ini aman dijalankan ulang melalui run_migration.py.
+-- =========================
+ALTER TABLE scan_ingredients
+    ADD COLUMN position_index INT NOT NULL DEFAULT 0;
+ALTER TABLE scan_ingredients
+    ADD COLUMN ocr_token VARCHAR(255);
+ALTER TABLE scan_ingredients
+    ADD COLUMN match_status ENUM('matched', 'unknown') NOT NULL DEFAULT 'matched';
+ALTER TABLE scan_ingredients
+    ADD COLUMN match_confidence DECIMAL(5,4);
+
+ALTER TABLE analyses
+    ADD COLUMN overall_score DECIMAL(5,2);
+ALTER TABLE analyses
+    ADD COLUMN classification VARCHAR(100);
+ALTER TABLE analyses
+    ADD COLUMN warnings_count INT NOT NULL DEFAULT 0;
+ALTER TABLE analyses
+    ADD COLUMN unknown_count INT NOT NULL DEFAULT 0;
+ALTER TABLE analyses
+    ADD COLUMN ai_model VARCHAR(100);
+ALTER TABLE analyses
+    ADD COLUMN ai_output LONGTEXT;
+
+DELETE duplicate_detail
+FROM analysis_details duplicate_detail
+INNER JOIN analysis_details retained_detail
+    ON retained_detail.analysis_id = duplicate_detail.analysis_id
+   AND retained_detail.ingredient_id = duplicate_detail.ingredient_id
+   AND retained_detail.id < duplicate_detail.id;
+
+ALTER TABLE analysis_details
+    ADD CONSTRAINT unique_analysis_ingredient
+    UNIQUE (analysis_id, ingredient_id);
+
+DELETE duplicate_history
+FROM user_histories duplicate_history
+INNER JOIN user_histories retained_history
+    ON retained_history.user_id = duplicate_history.user_id
+   AND retained_history.analysis_id = duplicate_history.analysis_id
+   AND retained_history.id < duplicate_history.id;
+
+ALTER TABLE user_histories
+    ADD CONSTRAINT unique_user_analysis
+    UNIQUE (user_id, analysis_id);
 
 -- =========================
 -- INDEXING (OPTIMIZED)
