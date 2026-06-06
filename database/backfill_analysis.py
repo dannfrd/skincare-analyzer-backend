@@ -41,6 +41,30 @@ def _fetch_targets(conn, limit: int) -> List[dict]:
     return [dict(row) for row in rows]
 
 
+def _relation_counts(conn, analysis_id: int, scan_id: int) -> tuple[int, int]:
+    scan_ingredient_count = conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM scan_ingredients
+            WHERE scan_id = :scan_id
+            """
+        ),
+        {"scan_id": scan_id},
+    ).scalar() or 0
+    detail_count = conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM analysis_details
+            WHERE analysis_id = :analysis_id
+            """
+        ),
+        {"analysis_id": analysis_id},
+    ).scalar() or 0
+    return int(scan_ingredient_count), int(detail_count)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill scan_ingredients and analysis_details.")
     parser.add_argument("--limit", type=int, default=200, help="Max analyses to backfill")
@@ -73,7 +97,15 @@ def main() -> None:
             continue
 
         ingredient_text = extract_ingredient_text(raw_text)
-        cleaned_tokens = clean_text_pipeline(ingredient_text)
+        # Maintenance must not consume Gemini quota or open local Qdrant storage.
+        cleaned_tokens = clean_text_pipeline(ingredient_text, use_ai=False)
+        if not cleaned_tokens:
+            print(
+                f"[{idx}] Skip: no ingredient tokens extracted "
+                f"(analysis_id={analysis_id})"
+            )
+            continue
+
         matched_ingredients = match_tokens_to_db(cleaned_tokens, ingredients)
         expert_report = run_expert_system(matched_ingredients)
 
@@ -86,14 +118,30 @@ def main() -> None:
             continue
 
         with db.engine.begin() as conn:
+            # Unknown OCR ingredients need master IDs before relation inserts.
+            db._resolve_ingredient_ids(conn, matched_ingredients)
             if scan_count == 0:
                 db._save_scan_ingredient_links(conn, scan_id, matched_ingredients)
             if detail_count == 0:
                 db._save_analysis_details(conn, analysis_id, matched_ingredients, expert_report)
 
+        with db.engine.connect() as conn:
+            saved_scan_count, saved_detail_count = _relation_counts(
+                conn,
+                analysis_id,
+                scan_id,
+            )
+
+        if saved_scan_count == 0 or saved_detail_count == 0:
+            raise RuntimeError(
+                f"Backfill verification failed for analysis_id={analysis_id}: "
+                f"scan_ingredients={saved_scan_count}, "
+                f"analysis_details={saved_detail_count}"
+            )
+
         print(
             f"[{idx}] Backfilled analysis_id={analysis_id} "
-            f"scan_ingredients={scan_count == 0} details={detail_count == 0}"
+            f"scan_ingredients={saved_scan_count} details={saved_detail_count}"
         )
 
 
