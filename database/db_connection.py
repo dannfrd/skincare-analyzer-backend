@@ -1,8 +1,10 @@
 import os
+import re
 import json
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+
 
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -83,152 +85,220 @@ class DatabaseConnection:
         product_category: Optional[str] = None,
     ) -> Optional[int]:
         """
-        Menyimpan hasil analisis.
-        - Skema lama: analysis_results
-        - Skema baru: scans + analyses (+ user_histories jika tersedia)
+        Simpan satu hasil scan ke seluruh tabel relasional dalam satu transaksi.
+
+        Urutan relasi:
+        products -> scans -> scan_ingredients
+                 -> analyses -> analysis_details
+
+        user_histories sengaja tidak diisi di sini karena histori hanya dibuat
+        ketika pengguna menekan tombol "Simpan Hasil".
         """
         if not self.engine:
-            return None
+            raise RuntimeError("Database connection is unavailable.")
 
         matched_ingredients = matched_ingredients or []
         expert_report = expert_report or {}
 
         try:
             with self.engine.begin() as conn:
-                required_tables = ["users", "scans", "analyses"]
-                has_new_schema = all(self._table_exists(conn, table_name) for table_name in required_tables)
-                if has_new_schema:
-                    resolved_user_id = user_id or self._ensure_system_user(conn)
-                    if not resolved_user_id:
-                        return None
-
-                    product_id = None
-                    if self._table_exists(conn, "products"):
-                        product_id = self._resolve_or_create_product(
-                            conn,
-                            product_name,
-                            product_brand,
-                            product_category,
-                        )
-
-                    scan_insert = conn.execute(text(
-                        """
-                        INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
-                        VALUES (:user_id, :product_id, NULL, :extracted_text, NOW())
-                        """
-                    ), {
-                        "user_id": resolved_user_id,
-                        "product_id": product_id,
-                        "extracted_text": raw_text,
-                    })
-                    scan_id = scan_insert.lastrowid
-
-                    self._resolve_ingredient_ids(conn, matched_ingredients)
-                    self._save_scan_ingredient_links(conn, scan_id, matched_ingredients)
-
-                    summary_text = self._extract_primary_text(ai_result, ["summary", "ringkasan", "result"])
-                    if not summary_text:
-                        summary_text = self._build_summary_from_expert(expert_report)
-
-                    recommendation_text = self._extract_primary_text(
-                        ai_result,
-                        ["recommendation", "rekomendasi", "suggestion"],
+                required_tables = {
+                    "users",
+                    "products",
+                    "ingredients",
+                    "scans",
+                    "scan_ingredients",
+                    "analyses",
+                    "analysis_details",
+                    "user_histories",
+                }
+                missing_tables = sorted(
+                    table_name
+                    for table_name in required_tables
+                    if not self._table_exists(conn, table_name)
+                )
+                if missing_tables:
+                    raise RuntimeError(
+                        "Relational schema is incomplete. Missing tables: "
+                        + ", ".join(missing_tables)
                     )
-                    if not recommendation_text:
-                        recommendation_text = self._build_recommendation_from_expert(expert_report)
 
-                    analysis_insert = conn.execute(text(
-                        """
-                        INSERT INTO analyses (scan_id, summary, recommendation, expert_analysis, ai_analysis, status, created_at)
-                        VALUES (:scan_id, :summary, :recommendation, :expert_analysis, :ai_analysis, :status, NOW())
-                        """
-                    ), {
-                        "scan_id": scan_id,
-                        "summary": summary_text,
-                        "recommendation": recommendation_text,
-                        "expert_analysis": json.dumps(expert_report) if expert_report else None,
-                        "ai_analysis": json.dumps(ai_result.get("ai_analysis")) if ai_result and "ai_analysis" in ai_result else None,
-                        "status": "completed",
-                    })
-                    analysis_id = analysis_insert.lastrowid
+                resolved_user_id = user_id or self._ensure_system_user(conn)
+                if not resolved_user_id:
+                    raise RuntimeError("Unable to resolve the scan owner.")
 
-                    self._save_analysis_details(conn, analysis_id, matched_ingredients, expert_report)
+                product_id = self._resolve_or_create_product(
+                    conn,
+                    product_name,
+                    product_brand,
+                    product_category,
+                )
 
-                    if self._table_exists(conn, "user_histories"):
-                        conn.execute(text(
-                            """
-                            INSERT INTO user_histories (user_id, analysis_id, viewed_at)
-                            VALUES (:user_id, :analysis_id, NOW())
-                            """
-                        ), {
-                            "user_id": resolved_user_id,
-                            "analysis_id": analysis_id,
-                        })
-
-                    return analysis_id
-
-                if self._table_exists(conn, "analysis_results"):
-                    result = conn.execute(text(
-                        """
-                        INSERT INTO analysis_results (raw_text, ai_analysis, created_at)
-                        VALUES (:raw_text, :ai_analysis, NOW())
-                        """
-                    ), {
-                        "raw_text": raw_text,
-                        "ai_analysis": json.dumps(ai_result),
-                    })
-                    return result.lastrowid
-
-                return None
-        except Exception as e:
-            logger.error(f"Error saving analysis result: {e}")
-            return None
-
-    def _resolve_ingredient_ids(self, conn, matched_ingredients: List[Dict[str, Any]]) -> None:
-        """Ensures all ingredients have a database ID by inserting missing ones."""
-        if not self._table_exists(conn, "ingredients"):
-            return
-            
-        for ingredient in matched_ingredients:
-            if isinstance(ingredient.get("id"), int):
-                continue
-                
-            name = str(ingredient.get("name") or ingredient.get("ocr_token_used") or "").strip().upper()
-            if not name:
-                continue
-                
-            # Coba cari dulu
-            existing = conn.execute(text(
-                "SELECT id FROM ingredients WHERE name = :name LIMIT 1"
-            ), {"name": name}).fetchone()
-            
-            if existing:
-                ingredient["id"] = existing.id if hasattr(existing, "id") else existing[0]
-                continue
-                
-            # Insert baru (Auto-discovery dari RAG / AI)
-            desc = str(ingredient.get("dataset_description") or ingredient.get("description") or "").strip()
-            func = str(ingredient.get("dataset_functions") or ingredient.get("function") or "Unknown").strip()
-            
-            risk_level = "low"
-            if ingredient.get("dataset_harmful"):
-                risk_level = "high"
-            
-            try:
-                insert = conn.execute(text(
+                scan_insert = conn.execute(text(
                     """
-                    INSERT INTO ingredients (name, description, `function`, risk_level, created_at)
-                    VALUES (:name, :desc, :func, :risk, NOW())
+                    INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
+                    VALUES (:user_id, :product_id, NULL, :extracted_text, NOW())
                     """
                 ), {
-                    "name": name,
-                    "desc": desc,
-                    "func": func,
-                    "risk": risk_level
+                    "user_id": resolved_user_id,
+                    "product_id": product_id,
+                    "extracted_text": raw_text,
                 })
+                scan_id = scan_insert.lastrowid
+
+                self._resolve_ingredient_ids(conn, matched_ingredients)
+                self._save_scan_ingredient_links(conn, scan_id, matched_ingredients)
+
+                summary_text = self._extract_primary_text(
+                    ai_result,
+                    ["summary", "ringkasan", "result"],
+                ) or self._build_summary_from_expert(expert_report)
+                recommendation_text = self._extract_primary_text(
+                    ai_result,
+                    ["recommendation", "rekomendasi", "suggestion"],
+                ) or self._build_recommendation_from_expert(expert_report)
+
+                ai_analysis = ai_result.get("ai_analysis")
+                if not isinstance(ai_analysis, dict):
+                    ai_analysis = {}
+
+                analysis_insert = conn.execute(text(
+                    """
+                    INSERT INTO analyses (
+                        scan_id,
+                        summary,
+                        recommendation,
+                        status,
+                        overall_score,
+                        classification,
+                        warnings_count,
+                        unknown_count,
+                        ai_model,
+                        ai_output,
+                        created_at
+                    )
+                    VALUES (
+                        :scan_id,
+                        :summary,
+                        :recommendation,
+                        :status,
+                        :overall_score,
+                        :classification,
+                        :warnings_count,
+                        :unknown_count,
+                        :ai_model,
+                        :ai_output,
+                        NOW()
+                    )
+                    """
+                ), {
+                    "scan_id": scan_id,
+                    "summary": summary_text,
+                    "recommendation": recommendation_text,
+                    "status": "completed",
+                    "overall_score": expert_report.get("overall_score"),
+                    "classification": expert_report.get("classification"),
+                    "warnings_count": expert_report.get("warnings_found") or 0,
+                    "unknown_count": expert_report.get("total_unknown") or 0,
+                    "ai_model": ai_analysis.get("model_used") or ai_analysis.get("model"),
+                    "ai_output": (
+                        ai_analysis.get("model_output")
+                        or ai_analysis.get("text")
+                        or recommendation_text
+                    ),
+                })
+                analysis_id = analysis_insert.lastrowid
+
+                self._save_analysis_details(
+                    conn,
+                    analysis_id,
+                    matched_ingredients,
+                    expert_report,
+                )
+                return analysis_id
+        except Exception as e:
+            logger.error(f"Error saving analysis result: {e}")
+            raise RuntimeError("Failed to persist relational analysis data.") from e
+
+    def _resolve_ingredient_ids(self, conn, matched_ingredients: List[Dict[str, Any]]) -> None:
+        """
+        Ensures ALL ingredients (including unknown ones) have a database ID
+        by looking them up or inserting them into the ingredients table.
+        This makes every scanned ingredient individually trackable.
+        """
+        if not self._table_exists(conn, "ingredients"):
+            return
+
+        for ingredient in matched_ingredients:
+            # Already resolved
+            if isinstance(ingredient.get("id"), int):
+                continue
+
+            # Determine canonical name
+            name = str(
+                ingredient.get("name") or ingredient.get("ocr_token_used") or ""
+            ).strip().upper()
+            import re as _re
+            name = _re.sub(r'^[^A-Z0-9]+|[^A-Z0-9\s\-\(\)]+$', '', name).strip()
+
+            if not name or len(name) < 2:
+                continue
+
+            # 1. Try to find existing row
+            existing = conn.execute(
+                text("SELECT id FROM ingredients WHERE name = :name LIMIT 1"),
+                {"name": name},
+            ).fetchone()
+
+            if existing:
+                ingredient["id"] = existing.id if hasattr(existing, "id") else existing[0]
+                logger.debug(f"Resolved existing ingredient: {name} -> id={ingredient['id']}")
+                continue
+
+            # 2. Auto-insert (including unknown / unmatched ingredients from OCR)
+            desc = str(
+                ingredient.get("dataset_description") or ingredient.get("description") or ""
+            ).strip()
+            func = str(
+                ingredient.get("dataset_functions") or ingredient.get("function") or ""
+            ).strip() or "Unknown"
+
+            # Determine risk level
+            status = str(ingredient.get("status") or "").strip().lower()
+            if ingredient.get("dataset_harmful"):
+                risk_level = "high"
+            elif status == "unknown":
+                risk_level = "unknown"
+            else:
+                risk_level = "low"
+
+            try:
+                insert = conn.execute(
+                    text(
+                        """
+                        INSERT INTO ingredients (name, description, `function`, risk_level, created_at)
+                        VALUES (:name, :desc, :func, :risk, NOW())
+                        """
+                    ),
+                    {
+                        "name": name,
+                        "desc": desc,
+                        "func": func,
+                        "risk": risk_level,
+                    },
+                )
                 ingredient["id"] = insert.lastrowid
+                logger.info(f"Auto-inserted ingredient: {name} (risk={risk_level}) -> id={ingredient['id']}")
             except Exception as e:
-                logger.error(f"Failed to auto-insert ingredient {name}: {e}")
+                # Most likely a duplicate race condition - try fetching again
+                logger.warning(f"Insert failed for {name}, retrying fetch: {e}")
+                retry = conn.execute(
+                    text("SELECT id FROM ingredients WHERE name = :name LIMIT 1"),
+                    {"name": name},
+                ).fetchone()
+                if retry:
+                    ingredient["id"] = retry.id if hasattr(retry, "id") else retry[0]
+
 
     def _extract_primary_text(self, payload: Dict[str, Any], keys: List[str]) -> str:
         for key in keys:
@@ -282,22 +352,50 @@ class DatabaseConnection:
         if not self._table_exists(conn, "scan_ingredients"):
             return
 
-        unique_ingredient_ids = set()
-        for ingredient in matched_ingredients:
+        linked_ingredient_ids = set()
+        for position_index, ingredient in enumerate(matched_ingredients):
             ingredient_id = ingredient.get("id")
-            if isinstance(ingredient_id, int):
-                unique_ingredient_ids.add(ingredient_id)
+            if not isinstance(ingredient_id, int) or ingredient_id in linked_ingredient_ids:
+                continue
 
-        for ingredient_id in unique_ingredient_ids:
+            linked_ingredient_ids.add(ingredient_id)
+            status = str(ingredient.get("status") or "").strip().lower()
+            match_status = "unknown" if status == "unknown" else "matched"
+            confidence = ingredient.get("match_confidence")
+            if confidence is None and match_status == "matched":
+                confidence = 1.0
+
             conn.execute(text(
                 """
-                INSERT INTO scan_ingredients (scan_id, ingredient_id)
-                VALUES (:scan_id, :ingredient_id)
-                ON DUPLICATE KEY UPDATE ingredient_id = VALUES(ingredient_id)
+                INSERT INTO scan_ingredients (
+                    scan_id,
+                    ingredient_id,
+                    position_index,
+                    ocr_token,
+                    match_status,
+                    match_confidence
+                )
+                VALUES (
+                    :scan_id,
+                    :ingredient_id,
+                    :position_index,
+                    :ocr_token,
+                    :match_status,
+                    :match_confidence
+                )
+                ON DUPLICATE KEY UPDATE
+                    position_index = VALUES(position_index),
+                    ocr_token = VALUES(ocr_token),
+                    match_status = VALUES(match_status),
+                    match_confidence = VALUES(match_confidence)
                 """
             ), {
                 "scan_id": scan_id,
                 "ingredient_id": ingredient_id,
+                "position_index": position_index,
+                "ocr_token": ingredient.get("ocr_token_used") or ingredient.get("name"),
+                "match_status": match_status,
+                "match_confidence": confidence,
             })
 
     def _save_analysis_details(
@@ -312,10 +410,15 @@ class DatabaseConnection:
 
         warning_map = self._build_warning_map(expert_report.get("flags"))
 
+        saved_ingredient_ids = set()
         for ingredient in matched_ingredients:
             ingredient_id = ingredient.get("id")
-            if not isinstance(ingredient_id, int):
+            if (
+                not isinstance(ingredient_id, int)
+                or ingredient_id in saved_ingredient_ids
+            ):
                 continue
+            saved_ingredient_ids.add(ingredient_id)
 
             ingredient_name = str(ingredient.get("name") or "").upper()
             
@@ -485,7 +588,18 @@ class DatabaseConnection:
         }).fetchone()
 
         if existing:
-            return existing.id if hasattr(existing, "id") else existing[0]
+            product_id = existing.id if hasattr(existing, "id") else existing[0]
+            conn.execute(text(
+                """
+                UPDATE products
+                SET category = COALESCE(NULLIF(:category, ''), category)
+                WHERE id = :product_id
+                """
+            ), {
+                "category": category_value,
+                "product_id": product_id,
+            })
+            return product_id
 
         insert = conn.execute(text(
             """
@@ -652,6 +766,12 @@ class DatabaseConnection:
                             a.summary,
                             a.recommendation,
                             a.status,
+                            a.overall_score,
+                            a.classification,
+                            a.warnings_count,
+                            a.unknown_count,
+                            a.ai_model,
+                            a.ai_output,
                             a.created_at,
                             s.extracted_text,
                             u.id AS user_id,
@@ -677,6 +797,12 @@ class DatabaseConnection:
                             a.summary,
                             a.recommendation,
                             a.status,
+                            a.overall_score,
+                            a.classification,
+                            a.warnings_count,
+                            a.unknown_count,
+                            a.ai_model,
+                            a.ai_output,
                             a.created_at,
                             s.extracted_text,
                             u.id,
@@ -699,10 +825,9 @@ class DatabaseConnection:
                         ]
 
                         ai_payload = {
-                            "summary": row.get("summary"),
-                            "recommendation": row.get("recommendation"),
-                            "matched_ingredients": matched_ingredients,
-                            "status": row.get("status"),
+                            "model_output": row.get("ai_output"),
+                            "model_used": row.get("ai_model"),
+                            "models_tried": [],
                         }
 
                         records.append({
@@ -712,6 +837,10 @@ class DatabaseConnection:
                             "summary": row.get("summary"),
                             "recommendation": row.get("recommendation"),
                             "status": row.get("status"),
+                            "overall_score": row.get("overall_score"),
+                            "classification": row.get("classification"),
+                            "warnings_count": row.get("warnings_count") or 0,
+                            "unknown_count": row.get("unknown_count") or 0,
                             "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
                             "matched_ingredients": matched_ingredients,
                             "detail_count": row.get("detail_count") or 0,
@@ -783,6 +912,12 @@ class DatabaseConnection:
                             a.expert_analysis,
                             a.ai_analysis,
                             a.status,
+                            a.overall_score,
+                            a.classification,
+                            a.warnings_count,
+                            a.unknown_count,
+                            a.ai_model,
+                            a.ai_output,
                             a.created_at,
                             s.extracted_text,
                             u.id AS user_id,
@@ -812,6 +947,11 @@ class DatabaseConnection:
                             i.risk_level,
                             i.description,
                             i.`function` AS ingredient_function,
+                            si.position_index,
+                            si.ocr_token,
+                            si.match_status,
+                            si.match_confidence,
+                            ad.`function` AS analysis_function,
                             ad.benefit,
                             ad.risk
                         FROM analyses a
@@ -822,7 +962,7 @@ class DatabaseConnection:
                             ON ad.analysis_id = a.id
                            AND ad.ingredient_id = i.id
                         WHERE a.id = :analysis_id
-                        ORDER BY i.name ASC
+                        ORDER BY si.position_index ASC, i.name ASC
                         """
                     ), {"analysis_id": analysis_id}).mappings().all()
 
@@ -836,11 +976,42 @@ class DatabaseConnection:
                             "id": ingredient_id,
                             "name": row.get("name"),
                             "risk_level": row.get("risk_level"),
-                            "function": row.get("ingredient_function"),
+                            "function": row.get("analysis_function") or row.get("ingredient_function"),
                             "description": row.get("description"),
                             "benefit": row.get("benefit"),
                             "risk": row.get("risk"),
+                            "dataset_description": row.get("benefit") or row.get("description"),
+                            "dataset_functions": row.get("analysis_function") or row.get("ingredient_function"),
+                            "dataset_warnings": (
+                                row.get("risk")
+                                if row.get("risk") != "No specific risk flagged"
+                                else None
+                            ),
+                            "ocr_token_used": row.get("ocr_token"),
+                            "status": (
+                                "Unknown"
+                                if row.get("match_status") == "unknown"
+                                else "Matched"
+                            ),
+                            "match_confidence": row.get("match_confidence"),
+                            "found_in_dataset": row.get("match_status") != "unknown",
                         })
+
+                    unknown_list = [
+                        ingredient.get("name")
+                        for ingredient in matched_ingredients
+                        if ingredient.get("status") == "Unknown"
+                    ]
+                    flags = [
+                        {
+                            "ingredient": ingredient.get("name"),
+                            "message": ingredient.get("risk"),
+                        }
+                        for ingredient in matched_ingredients
+                        if ingredient.get("risk")
+                        and ingredient.get("risk") != "No specific risk flagged"
+                    ]
+                    warnings_count = base_row.get("warnings_count") or 0
 
                     # Parse JSON text back to Dict
                     expert_payload = base_row.get("expert_analysis")
@@ -868,6 +1039,22 @@ class DatabaseConnection:
                         "ai_analysis": ai_payload,           # Kirim kembali ke Flutter
                         "matched_ingredient_count": len(matched_ingredients),
                         "matched_ingredients": matched_ingredients,
+                        "expert_analysis": {
+                            "overall_score": base_row.get("overall_score"),
+                            "classification": base_row.get("classification"),
+                            "warnings_found": warnings_count or len(flags),
+                            "total_ingredients_identified": (
+                                len(matched_ingredients) - len(unknown_list)
+                            ),
+                            "total_unknown": base_row.get("unknown_count") or len(unknown_list),
+                            "flags": flags,
+                            "unknown_list": unknown_list,
+                        },
+                        "ai_analysis": {
+                            "model_output": base_row.get("ai_output"),
+                            "model_used": base_row.get("ai_model"),
+                            "models_tried": [],
+                        },
                         "user": {
                             "id": base_row.get("user_id"),
                             "name": base_row.get("user_name"),

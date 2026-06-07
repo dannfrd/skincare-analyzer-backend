@@ -108,9 +108,16 @@ def apply_migration(database_url: URL, migration_file: Path) -> None:
                 print(f"[{i}/{len(statements)}] OK")
             except SQLAlchemyError as exc:
                 error_text = str(exc)
-                # Allow repeated runs when index already exists.
-                if "Duplicate key name" in error_text:
-                    print(f"[{i}/{len(statements)}] SKIP (index sudah ada)")
+                # Allow repeated runs for idempotent schema upgrades.
+                duplicate_markers = (
+                    "Duplicate key name",
+                    "Duplicate column name",
+                    "Duplicate foreign key constraint name",
+                    "Duplicate constraint name",
+                    "already exists",
+                )
+                if any(marker in error_text for marker in duplicate_markers):
+                    print(f"[{i}/{len(statements)}] SKIP (objek schema sudah ada)")
                     continue
                 raise
 

@@ -42,18 +42,42 @@ class TextCleaner:
         """
         Extract the ingredient section only, so downstream matching and AI prompting
         avoid unrelated packaging text.
+
+        Strategy:
+        1. Look for a known ingredient header keyword (Ingredients, Komposisi, etc.)
+        2. Extract text from that point until a known stop-word (Cara Pakai, Warning, etc.)
+        3. Fallback: score each line by ingredient-like heuristics and join the best ones.
         """
         if not raw_text:
             return ""
 
         normalized = raw_text.replace("\r", "\n")
+
+        # --- Expanded header patterns ---
         marker_pattern = re.compile(
-            r'(INGREDIENTS?|KOMPOSISI|COMPOSITION)\s*[:\-]?\s*',
-            flags=re.IGNORECASE,
+            r'(?:^|\n)[ \t]*'
+            r'(INGREDIENTS?|KOMPOSISI(?:\s+BAHAN)?|COMPOSITION|'
+            r'BAHAN(?:[-\s]BAHAN)?(?:\s+AKTIF)?|KANDUNGAN|INGR\.|INCI\s+NAME|'
+            r'FORMULA(?:\s+BAHAN)?)'
+            r'\s*[:\-/]?\s*',
+            flags=re.IGNORECASE | re.MULTILINE,
         )
+
+        # --- Expanded stop-word patterns (marks end of ingredient block) ---
         stop_pattern = re.compile(
-            r'\b(HOW TO USE|DIRECTIONS?|USAGE|CARA PAKAI|PERINGATAN|WARNING|CAUTION|NETTO|NET WT|BPOM|EXP\.?|MFG\.?|MANUFACTURED|MADE IN|BATCH|LOT)\b',
-            flags=re.IGNORECASE,
+            r'(?:^|\n|\s)'
+            r'(HOW\s+TO\s+USE|DIRECTIONS?|USAGE|CARA\s+PAKAI|CARA\s+PENGGUNAAN|'
+            r'ATURAN\s+PAKAI|PETUNJUK\s+PENGGUNAAN|PETUNJUK\s+PEMAKAIAN|'
+            r'PERINGATAN|WARNING|CAUTION|PERHATIAN|KETERANGAN|'
+            r'NETTO|NET\s*WT\.?|NET\s*CONTENT|BERAT\s+BERSIH|'
+            r'BPOM|NO\.?\s*REG\.?|NOMOR\s+REGISTRASI|P[\-–]IRT|'
+            r'EXP\.?|EXPIRED?|KADALUARSA|MFG\.?|MANUFACTURED|MADE\s+IN|'
+            r'BATCH|LOT\s*NO\.?|DISIMPAN|SIMPAN\s+DI|STORAGE|'
+            r'HALAL|CONTACT|DISTRIBUTOR|DIPRODUKSI\s+OLEH|DIPRODUKSI|'
+            r'ALAMAT|ADDRESS|TEL\.|TELP\.?|PHONE|WEBSITE|HTTP|WWW\.|'
+            r'KEGUNAAN|INDIKASI|KANDUNGAN\s+AKTIF(?=\s*:))'
+            r'\s*[:\-]?',
+            flags=re.IGNORECASE | re.MULTILINE,
         )
 
         marker_match = marker_pattern.search(normalized)
@@ -62,10 +86,18 @@ class TextCleaner:
             stop_match = stop_pattern.search(ingredient_block)
             if stop_match:
                 ingredient_block = ingredient_block[:stop_match.start()]
+
+            # Fix hyphenated line breaks (e.g. "Glycer-\nin" → "Glycerin")
+            ingredient_block = re.sub(r'-\s*\n\s*', '', ingredient_block)
+            # Collapse all remaining newlines to spaces (ingredient lists span lines)
+            ingredient_block = re.sub(r'[\n\r]+', ' ', ingredient_block)
+            # Collapse multiple spaces
+            ingredient_block = re.sub(r'\s{2,}', ' ', ingredient_block)
             extracted = ingredient_block.strip()
-            if extracted:
+            if len(extracted) >= 5:  # Sanity check: at least something meaningful
                 return extracted
 
+        # --- Fallback: score each line by ingredient-likelihood heuristics ---
         lines = [line.strip() for line in normalized.splitlines() if line.strip()]
         if not lines:
             return normalized.strip()
@@ -94,7 +126,12 @@ class TextCleaner:
 
         return normalized.strip()
 
-    def clean_and_tokenize(self, raw_text: str) -> List[str]:
+    def clean_and_tokenize(
+        self,
+        raw_text: str,
+        *,
+        use_ai: bool = True,
+    ) -> List[str]:
         """
         Main pipeline to clean the raw OCR string and split it into ingredients.
         Uses Gemini AI for extraction if available, falling back to regex.
@@ -111,29 +148,37 @@ class TextCleaner:
 
         logger.info("Cleaning raw OCR text")
 
-        # TRY GEMINI AI EXTRACTION FIRST
-        try:
-            from modules.gemini_ai import extract_ingredients_from_ocr
-            ai_ingredients = extract_ingredients_from_ocr(raw_text)
-            if ai_ingredients and len(ai_ingredients) > 0:
-                logger.info(f"Successfully extracted {len(ai_ingredients)} ingredients using AI.")
-                # Filter and normalize AI results
-                cleaned_ingredients = []
-                seen = set()
-                for ingredient in ai_ingredients:
-                    normalized = re.sub(r'\s+', ' ', ingredient).strip(' .-')
-                    if len(normalized) <= 1 or normalized.isnumeric():
-                        continue
-                    if normalized in seen:
-                        continue
-                    seen.add(normalized)
-                    cleaned_ingredients.append(normalized)
-                if cleaned_ingredients:
-                    return cleaned_ingredients
-            else:
-                logger.warning("AI extraction returned empty. Falling back to regex.")
-        except Exception as e:
-            logger.error(f"Failed to use AI for ingredient extraction: {e}. Falling back to regex.")
+        if use_ai:
+            try:
+                from modules.gemini_ai import extract_ingredients_from_ocr
+                ai_ingredients = extract_ingredients_from_ocr(raw_text)
+                if ai_ingredients and len(ai_ingredients) > 0:
+                    logger.info(
+                        "Successfully extracted %s ingredients using AI.",
+                        len(ai_ingredients),
+                    )
+                    cleaned_ingredients = []
+                    seen = set()
+                    for ingredient in ai_ingredients:
+                        normalized = re.sub(r'\s+', ' ', ingredient).strip(' .-')
+                        if len(normalized) <= 1 or normalized.isnumeric():
+                            continue
+                        if normalized in seen:
+                            continue
+                        seen.add(normalized)
+                        cleaned_ingredients.append(normalized)
+                    if cleaned_ingredients:
+                        return cleaned_ingredients
+                else:
+                    logger.warning(
+                        "AI extraction returned empty. Falling back to regex."
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to use AI for ingredient extraction: %s. "
+                    "Falling back to regex.",
+                    e,
+                )
 
         # FALLBACK: Regex based extraction
         ingredient_text = self.extract_ingredient_text(raw_text)
@@ -175,10 +220,10 @@ class TextCleaner:
         return cleaned_ingredients
 
 # Helper function
-def clean_text_pipeline(raw_text: str) -> List[str]:
+def clean_text_pipeline(raw_text: str, *, use_ai: bool = True) -> List[str]:
     """Helper function to rapidly clean and split raw text."""
     cleaner = TextCleaner()
-    return cleaner.clean_and_tokenize(raw_text)
+    return cleaner.clean_and_tokenize(raw_text, use_ai=use_ai)
 
 
 def extract_ingredient_text(raw_text: str) -> str:
