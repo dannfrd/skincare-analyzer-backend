@@ -909,6 +909,8 @@ class DatabaseConnection:
                             a.scan_id,
                             a.summary,
                             a.recommendation,
+                            a.expert_analysis,
+                            a.ai_analysis,
                             a.status,
                             a.overall_score,
                             a.classification,
@@ -1011,6 +1013,21 @@ class DatabaseConnection:
                     ]
                     warnings_count = base_row.get("warnings_count") or 0
 
+                    # Parse JSON text back to Dict
+                    expert_payload = base_row.get("expert_analysis")
+                    if isinstance(expert_payload, str):
+                        try:
+                            expert_payload = json.loads(expert_payload)
+                        except json.JSONDecodeError:
+                            pass
+
+                    ai_payload = base_row.get("ai_analysis")
+                    if isinstance(ai_payload, str):
+                        try:
+                            ai_payload = json.loads(ai_payload)
+                        except json.JSONDecodeError:
+                            pass
+
                     return {
                         "id": base_row.get("id"),
                         "scan_id": base_row.get("scan_id"),
@@ -1018,6 +1035,8 @@ class DatabaseConnection:
                         "summary": base_row.get("summary"),
                         "recommendation": base_row.get("recommendation"),
                         "status": base_row.get("status"),
+                        "expert_analysis": expert_payload,   # Kirim kembali ke Flutter
+                        "ai_analysis": ai_payload,           # Kirim kembali ke Flutter
                         "matched_ingredient_count": len(matched_ingredients),
                         "matched_ingredients": matched_ingredients,
                         "expert_analysis": {

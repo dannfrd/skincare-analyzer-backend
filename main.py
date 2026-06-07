@@ -521,61 +521,9 @@ def metrics_recent(
     return records
 
 
-@app.get("/metrics/users", response_model=List[UserSummaryResponse])
-def metrics_users(
-    limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
-):
-    db = get_db_connection()
-    return db.get_users(limit=limit)
 
-
-@app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
-def metrics_analyses(
-    limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
-):
-    db = get_db_connection()
-    return db.get_analyses(limit=limit)
-
-
-@app.get("/metrics/analysis-details", response_model=List[AnalysisDetailSummaryResponse])
-def metrics_analysis_details(
-    limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
-):
-    db = get_db_connection()
-    return db.get_analysis_details(limit=limit)
-
-
-@app.get("/metrics/products", response_model=List[ProductSummaryResponse])
-def metrics_products(
-    limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
-):
-    db = get_db_connection()
-    return db.get_products(limit=limit)
-
-
-@app.get("/metrics/ingredients", response_model=List[IngredientSummaryResponse])
-def metrics_ingredients(
-    limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
-):
-    db = get_db_connection()
-    return db.get_ingredients(limit=limit)
-
-
-@app.get("/metrics/user-histories", response_model=List[UserHistorySummaryResponse])
-def metrics_user_histories(
-    limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
-):
-    db = get_db_connection()
-    return db.get_user_histories(limit=limit)
-
+# Endpoint GET /history untuk mengambil histori user
 @app.get("/history")
-
 def get_user_history(request: Request, db=Depends(get_db_connection)):
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.lower().startswith("bearer "):
@@ -586,8 +534,8 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         user_email = payload.get("sub")
         if not user_email:
             raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
 
     with db.engine.connect() as conn:
         user = conn.execute(
@@ -596,72 +544,35 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         ).fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-
         user_id = user.id if hasattr(user, 'id') else user[0]
 
-        # History diambil dari user_histories karena tombol "Simpan Hasil" menyimpan analysis_id ke tabel ini.
-        results = conn.execute(
+        # QUERY DIPERBARUI: Melakukan JOIN agar data Product dan Analysis ikut terambil
+        histories = conn.execute(
             text("""
-                SELECT
+                SELECT 
                     uh.id AS history_id,
                     uh.viewed_at,
                     a.id AS analysis_id,
                     a.summary,
                     a.recommendation,
                     a.status,
-                    a.created_at AS analysis_created_at,
-                    s.id AS scan_id,
-                    p.id AS product_id,
+                    a.created_at,
                     p.name AS product_name,
                     p.brand AS product_brand,
-                    GROUP_CONCAT(DISTINCT i.risk_level ORDER BY i.risk_level SEPARATOR ',') AS risk_levels
+                    p.category AS product_category
                 FROM user_histories uh
-                INNER JOIN analyses a ON a.id = uh.analysis_id
-                LEFT JOIN scans s ON s.id = a.scan_id
-                LEFT JOIN products p ON p.id = s.product_id
-                LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                JOIN analyses a ON uh.analysis_id = a.id
+                JOIN scans s ON a.scan_id = s.id
+                LEFT JOIN products p ON s.product_id = p.id
                 WHERE uh.user_id = :user_id
-                GROUP BY
-                    uh.id,
-                    uh.viewed_at,
-                    a.id,
-                    a.summary,
-                    a.recommendation,
-                    a.status,
-                    a.created_at,
-                    s.id,
-                    p.id,
-                    p.name,
-                    p.brand
-                ORDER BY COALESCE(uh.viewed_at, a.created_at) DESC
+                ORDER BY uh.viewed_at DESC
             """),
             {"user_id": user_id}
-        ).mappings().all()
-
-        payload: List[Dict[str, Any]] = []
-        for row in results:
-            created_at = row.get("viewed_at") or row.get("analysis_created_at")
-            risk_level = _resolve_history_risk_level(row.get("risk_levels"))
-
-            payload.append({
-                "id": row.get("history_id"),
-                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
-                "analysis_id": row.get("analysis_id"),
-                "product": {
-                    "id": row.get("product_id"),
-                    "name": row.get("product_name") or f"Analysis #{row.get('analysis_id')}",
-                    "brand": row.get("product_brand") or "No Brand",
-                },
-                "analyses": [
-                    {
-                        "id": row.get("analysis_id"),
-                        "summary": row.get("summary"),
-                        "recommendation": row.get("recommendation"),
-                        "status": row.get("status"),
-                        "risk_level": risk_level,
-                    }
-                ],
-            })
-
-        return payload
+        ).fetchall()
+        
+        # Convert SQLAlchemy RowProxy/Row to dict
+        result = []
+        for row in histories:
+            result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
+            
+        return {"items": result}
