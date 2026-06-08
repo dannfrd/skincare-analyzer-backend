@@ -173,6 +173,10 @@ ALTER TABLE analyses
     ADD COLUMN ai_model VARCHAR(100);
 ALTER TABLE analyses
     ADD COLUMN ai_output LONGTEXT;
+ALTER TABLE analyses
+    ADD COLUMN raw_result LONGTEXT;
+ALTER TABLE users
+    ADD COLUMN profile_picture VARCHAR(255) NULL AFTER firebase_uid;
 
 DELETE duplicate_detail
 FROM analysis_details duplicate_detail
@@ -183,7 +187,8 @@ INNER JOIN analysis_details retained_detail
 
 ALTER TABLE analysis_details
     ADD CONSTRAINT unique_analysis_ingredient
-    UNIQUE (analysis_id, ingredient_id);
+    UNIQUE (analysis_id,
+     ingredient_id);
 
 DELETE duplicate_history
 FROM user_histories duplicate_history
