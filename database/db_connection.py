@@ -175,6 +175,7 @@ class DatabaseConnection:
                         unknown_count,
                         ai_model,
                         ai_output,
+                        raw_result,
                         created_at
                     )
                     VALUES (
@@ -188,6 +189,7 @@ class DatabaseConnection:
                         :unknown_count,
                         :ai_model,
                         :ai_output,
+                        :raw_result,
                         NOW()
                     )
                     """
@@ -206,6 +208,8 @@ class DatabaseConnection:
                         or ai_analysis.get("text")
                         or recommendation_text
                     ),
+                    # Store full JSON result payload when available
+                    "raw_result": json.dumps(ai_result, ensure_ascii=False, default=str) if ai_result is not None else None,
                 })
                 analysis_id = analysis_insert.lastrowid
 
@@ -902,40 +906,97 @@ class DatabaseConnection:
         try:
             with self.engine.connect() as conn:
                 if self._table_exists(conn, "analyses"):
-                    base_row = conn.execute(text(
-                        """
-                        SELECT
-                            a.id,
-                            a.scan_id,
-                            a.summary,
-                            a.recommendation,
-                            a.status,
-                            a.overall_score,
-                            a.classification,
-                            a.warnings_count,
-                            a.unknown_count,
-                            a.ai_model,
-                            a.ai_output,
-                            a.created_at,
-                            s.extracted_text,
-                            u.id AS user_id,
-                            u.name AS user_name,
-                            u.email AS user_email,
-                            p.id AS product_id,
-                            p.name AS product_name,
-                            p.brand AS product_brand,
-                            p.category AS product_category
-                        FROM analyses a
-                        LEFT JOIN scans s ON s.id = a.scan_id
-                        LEFT JOIN users u ON u.id = s.user_id
-                        LEFT JOIN products p ON p.id = s.product_id
-                        WHERE a.id = :analysis_id
-                        LIMIT 1
-                        """
-                    ), {"analysis_id": analysis_id}).mappings().first()
+                    # Build SELECT dynamically based on which columns exist in `analyses` to
+                    # avoid querying missing legacy columns (prevents OperationalError).
+                    cols = [
+                        "a.id",
+                        "a.scan_id",
+                        "a.summary",
+                        "a.recommendation",
+                    ]
+
+                    optional_cols = [
+                        "expert_analysis",
+                        "ai_analysis",
+                        "raw_result",
+                        "status",
+                        "overall_score",
+                        "classification",
+                        "warnings_count",
+                        "unknown_count",
+                        "ai_model",
+                        "ai_output",
+                        "created_at",
+                    ]
+
+                    for c in optional_cols:
+                        if self._column_exists(conn, "analyses", c):
+                            cols.append(f"a.{c}")
+
+                    # Always include joined context columns
+                    cols.extend([
+                        "s.extracted_text",
+                        "u.id AS user_id",
+                        "u.name AS user_name",
+                        "u.email AS user_email",
+                        "p.id AS product_id",
+                        "p.name AS product_name",
+                        "p.brand AS product_brand",
+                        "p.category AS product_category",
+                    ])
+
+                    join_str = ',\n    '.join(cols)
+                    sql = (
+                        "SELECT\n    " + join_str +
+                        "\nFROM analyses a\nLEFT JOIN scans s ON s.id = a.scan_id\nLEFT JOIN users u ON u.id = s.user_id\nLEFT JOIN products p ON p.id = s.product_id\nWHERE a.id = :analysis_id\nLIMIT 1"
+                    )
+
+                    base_row = conn.execute(text(sql), {"analysis_id": analysis_id}).mappings().first()
 
                     if not base_row:
+                        # Fallback: if legacy `analysis_results` table exists, try fetching from there
+                        if self._table_exists(conn, "analysis_results"):
+                            row = conn.execute(text(
+                                """
+                                SELECT id, raw_text, ai_analysis, created_at
+                                FROM analysis_results
+                                WHERE id = :analysis_id
+                                LIMIT 1
+                                """
+                            ), {"analysis_id": analysis_id}).mappings().first()
+
+                            if not row:
+                                return None
+
+                            ai_payload: Any = row.get("ai_analysis")
+                            if isinstance(ai_payload, str):
+                                try:
+                                    ai_payload = json.loads(ai_payload)
+                                except json.JSONDecodeError:
+                                    pass
+
+                            return {
+                                "id": row.get("id"),
+                                "raw_text": row.get("raw_text"),
+                                "ai_analysis": ai_payload,
+                                "created_at": self._to_iso_datetime(row.get("created_at")),
+                            }
                         return None
+
+                    # If a raw_result payload was stored, prefer returning it verbatim
+                    raw_payload = base_row.get("raw_result")
+                    if isinstance(raw_payload, str) and raw_payload.strip():
+                        try:
+                            parsed = json.loads(raw_payload)
+                        except Exception:
+                            parsed = raw_payload
+
+                        if isinstance(parsed, dict):
+                            # Ensure identifiers and timestamps are present for clients
+                            parsed.setdefault("analysis_id", base_row.get("id"))
+                            parsed.setdefault("id", base_row.get("id"))
+                            parsed.setdefault("created_at", self._to_iso_datetime(base_row.get("created_at")))
+                            return parsed
 
                     ingredient_rows = conn.execute(text(
                         """
@@ -1011,6 +1072,21 @@ class DatabaseConnection:
                     ]
                     warnings_count = base_row.get("warnings_count") or 0
 
+                    # Parse JSON text back to Dict
+                    expert_payload = base_row.get("expert_analysis")
+                    if isinstance(expert_payload, str):
+                        try:
+                            expert_payload = json.loads(expert_payload)
+                        except json.JSONDecodeError:
+                            pass
+
+                    ai_payload = base_row.get("ai_analysis")
+                    if isinstance(ai_payload, str):
+                        try:
+                            ai_payload = json.loads(ai_payload)
+                        except json.JSONDecodeError:
+                            pass
+
                     return {
                         "id": base_row.get("id"),
                         "scan_id": base_row.get("scan_id"),
@@ -1018,6 +1094,8 @@ class DatabaseConnection:
                         "summary": base_row.get("summary"),
                         "recommendation": base_row.get("recommendation"),
                         "status": base_row.get("status"),
+                        "expert_analysis": expert_payload,   # Kirim kembali ke Flutter
+                        "ai_analysis": ai_payload,           # Kirim kembali ke Flutter
                         "matched_ingredient_count": len(matched_ingredients),
                         "matched_ingredients": matched_ingredients,
                         "expert_analysis": {

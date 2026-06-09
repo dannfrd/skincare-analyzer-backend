@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from database.db_connection import get_db_session
@@ -57,6 +57,7 @@ class UserOut(BaseModel):
     role: str | None = None
     provider: str | None = None
     firebase_uid: str | None = None
+    profile_picture: str | None = None
 
     class Config:
          from_attributes = True
@@ -151,6 +152,7 @@ def _normalize_user_response(user_row) -> dict:
     user_dict.setdefault("provider", None)
     user_dict.setdefault("firebase_uid", None)
     user_dict.setdefault("role", None)
+    user_dict.setdefault("profile_picture", None)
     return user_dict
 
 
@@ -214,7 +216,7 @@ def admin_login(payload: UserLogin, db: Session = Depends(get_db_session)):
     return {"token": token, "user": UserOut(**user_dict)}
 
 @router.post("/login")
-def login(payload: UserLogin, db: Session = Depends(get_db_session)):
+def login(payload: UserLogin, request: Request, db: Session = Depends(get_db_session)):
     result = db.execute(
         text("SELECT * FROM users WHERE email = :email LIMIT 1"),
         {"email": payload.email}
@@ -224,11 +226,18 @@ def login(payload: UserLogin, db: Session = Depends(get_db_session)):
         raise HTTPException(status_code=401, detail="Email atau password salah")
     # Konversi row ke dict agar bisa dipakai UserOut
     user_dict = _normalize_user_response(user)
+    # Convert relative profile_picture to absolute using request base URL
+    base = str(request.base_url).rstrip("/")
+    pp = user_dict.get("profile_picture")
+    if pp and not pp.startswith("http"):
+        pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+        user_dict["profile_picture"] = pp
+
     token = create_access_token({"sub": user_dict["email"], "id": user_dict["id"]})
     return {"token": token, "user": UserOut(**user_dict)}
 
 @router.post("/register", status_code=201)
-def register(payload: UserRegister, db: Session = Depends(get_db_session)):
+def register(payload: UserRegister, request: Request, db: Session = Depends(get_db_session)):
     # Cek email sudah terdaftar
     result = db.execute(
         text("SELECT id FROM users WHERE email = :email LIMIT 1"),
@@ -258,6 +267,12 @@ def register(payload: UserRegister, db: Session = Depends(get_db_session)):
         {"id": user_id}
     ).fetchone()
     user_dict = _normalize_user_response(user)
+    base = str(request.base_url).rstrip("/")
+    pp = user_dict.get("profile_picture")
+    if pp and not pp.startswith("http"):
+        pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+        user_dict["profile_picture"] = pp
+
     token = create_access_token({"sub": user_dict["email"], "id": user_dict["id"]})
     return {"token": token, "user": UserOut(**user_dict)}
 
@@ -265,6 +280,7 @@ def register(payload: UserRegister, db: Session = Depends(get_db_session)):
 def google_login(
     payload: GoogleLoginPayload | None = None,
     id_token: str | None = Query(default=None),
+    request: Request = None,
     db: Session = Depends(get_db_session),
 ):
     token_to_verify = payload.id_token if payload and payload.id_token else id_token
@@ -366,5 +382,11 @@ def google_login(
             {"id": user_id}
         ).fetchone()
     user_dict = _normalize_user_response(user)
+    base = str(request.base_url).rstrip("/") if request is not None else ""
+    pp = user_dict.get("profile_picture")
+    if base and pp and not pp.startswith("http"):
+        pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+        user_dict["profile_picture"] = pp
+
     token = create_access_token({"sub": user_dict["email"], "id": user_dict["id"]})
     return {"token": token, "user": UserOut(**user_dict)}

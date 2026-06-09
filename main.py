@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import os
@@ -42,6 +43,10 @@ app.add_middleware(
 
 # Make sure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
+os.makedirs("uploads/profile_pictures", exist_ok=True)
+
+# Serve uploaded files (profile pictures, temp uploads)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 app.include_router(auth_router)
@@ -153,6 +158,134 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
         "message": "Daftar histori telah berhasil ditambahkan.",
         "analysis_id": request_data.analysis_id,
     }
+
+
+@app.post("/profile/upload")
+async def upload_profile_picture(request: Request, file: UploadFile = File(...), db=Depends(get_db_connection)):
+    """Upload profile picture file and save URL to user's `profile_picture` column."""
+    user_id = _resolve_user_id_from_request(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{file.filename}"
+        save_path = os.path.join("uploads/profile_pictures", filename)
+        with open(save_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        # Build absolute URL so frontend can load it directly
+        base = str(request.base_url).rstrip("/")
+        profile_url = f"{base}/uploads/profile_pictures/{filename}"
+
+        with db.engine.begin() as conn:
+            conn.execute(text(
+                """
+                UPDATE users
+                SET profile_picture = :profile_picture
+                WHERE id = :user_id
+                """
+            ), {
+                "profile_picture": profile_url,
+                "user_id": user_id,
+            })
+
+        return {"profile_picture": profile_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    profile_picture: Optional[str] = None
+    password: Optional[str] = None
+
+
+@app.post("/profile/update")
+def update_profile(request_data: UpdateProfileRequest, request: Request, db=Depends(get_db_connection)):
+    """Update user's profile fields: name, email, profile_picture, password."""
+    user_id = _resolve_user_id_from_request(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        base = str(request.base_url).rstrip("/")
+
+        # Normalize profile_picture input: if frontend sent a relative path, convert to absolute
+        incoming_pp = (request_data.profile_picture or "").strip()
+        if incoming_pp and incoming_pp.startswith("/uploads"):
+            incoming_pp = f"{base}{incoming_pp}"
+
+        with db.engine.begin() as conn:
+            # Basic update using COALESCE/NULLIF to keep existing values when empty
+            conn.execute(text(
+                """
+                UPDATE users
+                SET
+                    name = COALESCE(NULLIF(:name, ''), name),
+                    email = COALESCE(NULLIF(:email, ''), email),
+                    profile_picture = COALESCE(NULLIF(:profile_picture, ''), profile_picture),
+                    password = COALESCE(NULLIF(:password, ''), password)
+                WHERE id = :user_id
+                """
+            ), {
+                "name": request_data.name or "",
+                "email": request_data.email or "",
+                "profile_picture": incoming_pp or "",
+                "password": request_data.password or "",
+                "user_id": user_id,
+            })
+
+            row = conn.execute(text("SELECT id, name, email, profile_picture, created_at FROM users WHERE id = :user_id"), {"user_id": user_id}).mappings().first()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Ensure profile_picture returned is absolute URL
+        pp = row.get("profile_picture")
+        if pp and not pp.startswith("http"):
+            pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+
+        return {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "email": row.get("email"),
+            "profile_picture": pp,
+            "created_at": row.get("created_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/profile/me")
+def get_my_profile(request: Request, db=Depends(get_db_connection)):
+    """Return current authenticated user's profile from DB for debugging/verification."""
+    user_id = _resolve_user_id_from_request(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        base = str(request.base_url).rstrip("/")
+        with db.engine.connect() as conn:
+            row = conn.execute(text("SELECT id, name, email, profile_picture, created_at FROM users WHERE id = :user_id"), {"user_id": user_id}).mappings().first()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        pp = row.get("profile_picture")
+        if pp and not pp.startswith("http"):
+            pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+
+        return {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "email": row.get("email"),
+            "profile_picture": pp,
+            "created_at": row.get("created_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # model request dari Flutter
 class IngredientRequest(BaseModel):
@@ -589,7 +722,6 @@ def metrics_user_histories(
     return db.get_user_histories(limit=limit)
 
 @app.get("/history")
-
 def get_user_history(request: Request, db=Depends(get_db_connection)):
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.lower().startswith("bearer "):
@@ -600,8 +732,8 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         user_email = payload.get("sub")
         if not user_email:
             raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
 
     with db.engine.connect() as conn:
         user = conn.execute(
@@ -610,72 +742,35 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         ).fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-
         user_id = user.id if hasattr(user, 'id') else user[0]
 
-        # History diambil dari user_histories karena tombol "Simpan Hasil" menyimpan analysis_id ke tabel ini.
-        results = conn.execute(
+        # QUERY DIPERBARUI: Melakukan JOIN agar data Product dan Analysis ikut terambil
+        histories = conn.execute(
             text("""
-                SELECT
+                SELECT 
                     uh.id AS history_id,
                     uh.viewed_at,
                     a.id AS analysis_id,
                     a.summary,
                     a.recommendation,
                     a.status,
-                    a.created_at AS analysis_created_at,
-                    s.id AS scan_id,
-                    p.id AS product_id,
+                    a.created_at,
                     p.name AS product_name,
                     p.brand AS product_brand,
-                    GROUP_CONCAT(DISTINCT i.risk_level ORDER BY i.risk_level SEPARATOR ',') AS risk_levels
+                    p.category AS product_category
                 FROM user_histories uh
-                INNER JOIN analyses a ON a.id = uh.analysis_id
-                LEFT JOIN scans s ON s.id = a.scan_id
-                LEFT JOIN products p ON p.id = s.product_id
-                LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                JOIN analyses a ON uh.analysis_id = a.id
+                JOIN scans s ON a.scan_id = s.id
+                LEFT JOIN products p ON s.product_id = p.id
                 WHERE uh.user_id = :user_id
-                GROUP BY
-                    uh.id,
-                    uh.viewed_at,
-                    a.id,
-                    a.summary,
-                    a.recommendation,
-                    a.status,
-                    a.created_at,
-                    s.id,
-                    p.id,
-                    p.name,
-                    p.brand
-                ORDER BY COALESCE(uh.viewed_at, a.created_at) DESC
+                ORDER BY uh.viewed_at DESC
             """),
             {"user_id": user_id}
-        ).mappings().all()
-
-        payload: List[Dict[str, Any]] = []
-        for row in results:
-            created_at = row.get("viewed_at") or row.get("analysis_created_at")
-            risk_level = _resolve_history_risk_level(row.get("risk_levels"))
-
-            payload.append({
-                "id": row.get("history_id"),
-                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
-                "analysis_id": row.get("analysis_id"),
-                "product": {
-                    "id": row.get("product_id"),
-                    "name": row.get("product_name") or f"Analysis #{row.get('analysis_id')}",
-                    "brand": row.get("product_brand") or "No Brand",
-                },
-                "analyses": [
-                    {
-                        "id": row.get("analysis_id"),
-                        "summary": row.get("summary"),
-                        "recommendation": row.get("recommendation"),
-                        "status": row.get("status"),
-                        "risk_level": risk_level,
-                    }
-                ],
-            })
-
-        return payload
+        ).fetchall()
+        
+        # Convert SQLAlchemy RowProxy/Row to dict
+        result = []
+        for row in histories:
+            result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
+            
+        return {"items": result}
