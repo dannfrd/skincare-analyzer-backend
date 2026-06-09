@@ -155,7 +155,10 @@ def _normalize_user_response(user_row) -> dict:
 
 
 def verify_password(plain, hashed):
-    return pwd_context.verify(plain, hashed)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except (ValueError, TypeError):
+        return False
 
 
 def get_password_hash(password):
@@ -163,6 +166,52 @@ def get_password_hash(password):
 
 def create_access_token(data: dict):
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _admin_password_is_valid(plain_password: str, stored_password: str) -> bool:
+    if verify_password(plain_password, stored_password):
+        return True
+
+    # Upgrade akun admin legacy yang sebelumnya masih menyimpan password plaintext.
+    return stored_password == plain_password
+
+
+@router.post("/admin/login")
+def admin_login(payload: UserLogin, db: Session = Depends(get_db_session)):
+    user = db.execute(
+        text("SELECT * FROM users WHERE email = :email LIMIT 1"),
+        {"email": payload.email},
+    ).fetchone()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Email atau password admin salah")
+
+    user_dict = _normalize_user_response(user)
+    if str(user_dict.get("role") or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Akun ini tidak memiliki akses admin")
+
+    stored_password = str(user_dict.get("password") or "")
+    if not _admin_password_is_valid(payload.password, stored_password):
+        raise HTTPException(status_code=401, detail="Email atau password admin salah")
+
+    if stored_password == payload.password:
+        db.execute(
+            text("UPDATE users SET password = :password WHERE id = :id"),
+            {
+                "password": get_password_hash(payload.password),
+                "id": user_dict["id"],
+            },
+        )
+        db.commit()
+
+    token = create_access_token(
+        {
+            "sub": user_dict["email"],
+            "id": user_dict["id"],
+            "role": "admin",
+        }
+    )
+    return {"token": token, "user": UserOut(**user_dict)}
 
 @router.post("/login")
 def login(payload: UserLogin, db: Session = Depends(get_db_session)):
