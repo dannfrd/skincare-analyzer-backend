@@ -594,10 +594,24 @@ def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> s
     return "Secara umum formula cukup aman, tetap perhatikan kecocokan dengan jenis kulit Anda."
 
 
-def require_monitoring_api_key(x_api_key: str | None = Header(default=None)):
-    """Simple API key guard for monitoring endpoints."""
-    if API_MONITORING_KEY and x_api_key != API_MONITORING_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+def require_monitoring_access(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """Allow monitoring API key or a JWT issued to an admin account."""
+    if API_MONITORING_KEY and x_api_key == API_MONITORING_KEY:
+        return
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if str(payload.get("role") or "").lower() == "admin":
+                return
+        except JWTError:
+            pass
+
+    raise HTTPException(status_code=401, detail="Admin authentication required")
 
 
 def _current_timestamp() -> datetime:
@@ -612,7 +626,7 @@ def _service_status(healthy: bool, detail: str = "") -> Dict[str, Any]:
 
 
 @app.get("/health", response_model=HealthResponse)
-def health_status(_: None = Depends(require_monitoring_api_key)):
+def health_status(_: None = Depends(require_monitoring_access)):
     db = get_db_connection()
     db_status = db.ping()
     ocr_ready = shutil.which("tesseract") is not None
@@ -630,7 +644,7 @@ def health_status(_: None = Depends(require_monitoring_api_key)):
 
 
 @app.get("/metrics/summary", response_model=MetricsSummaryResponse)
-def metrics_summary(_: None = Depends(require_monitoring_api_key)):
+def metrics_summary(_: None = Depends(require_monitoring_access)):
     db = get_db_connection()
     analysis = db.get_analysis_summary()
     ingredients = db.get_ingredient_summary()
@@ -646,7 +660,7 @@ def metrics_summary(_: None = Depends(require_monitoring_api_key)):
 @app.get("/metrics/recent", response_model=List[RecentAnalysisResponse])
 def metrics_recent(
     limit: int = Query(default=15, ge=1, le=100),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     records = db.get_recent_analysis_results(limit=limit)
@@ -654,8 +668,59 @@ def metrics_recent(
     return records
 
 
+@app.get("/metrics/users", response_model=List[UserSummaryResponse])
+def metrics_users(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_users(limit=limit)
 
-# Endpoint GET /history untuk mengambil histori user
+
+@app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
+def metrics_analyses(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_analyses(limit=limit)
+
+
+@app.get("/metrics/analysis-details", response_model=List[AnalysisDetailSummaryResponse])
+def metrics_analysis_details(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_analysis_details(limit=limit)
+
+
+@app.get("/metrics/products", response_model=List[ProductSummaryResponse])
+def metrics_products(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_products(limit=limit)
+
+
+@app.get("/metrics/ingredients", response_model=List[IngredientSummaryResponse])
+def metrics_ingredients(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_ingredients(limit=limit)
+
+
+@app.get("/metrics/user-histories", response_model=List[UserHistorySummaryResponse])
+def metrics_user_histories(
+    limit: int = Query(default=200, ge=1, le=500),
+    _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_user_histories(limit=limit)
+
 @app.get("/history")
 def get_user_history(request: Request, db=Depends(get_db_connection)):
     auth_header = request.headers.get("authorization")

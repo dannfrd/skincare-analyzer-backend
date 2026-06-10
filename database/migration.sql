@@ -148,6 +148,39 @@ CREATE TABLE IF NOT EXISTS user_histories (
         UNIQUE (user_id, analysis_id)
 );
 
+ALTER TABLE users
+    ADD COLUMN role VARCHAR(50) NULL DEFAULT 'user';
+ALTER TABLE users
+    ADD COLUMN provider VARCHAR(50) NULL DEFAULT 'manual';
+ALTER TABLE users
+    ADD COLUMN firebase_uid VARCHAR(255) NULL;
+
+UPDATE users
+SET role = 'user'
+WHERE role IS NULL OR TRIM(role) = '';
+
+INSERT INTO users (
+    name,
+    email,
+    password,
+    role,
+    provider,
+    created_at
+)
+VALUES (
+    'Dermify Administrator',
+    'dermify@gmail.com',
+    '$bcrypt-sha256$v=2,t=2b,r=12$QIomtU1atcsCJLi2stL/Hu$ZrI/Hwk54i7VNgDZxRsIT7Qfoqnz6iu',
+    'admin',
+    'manual',
+    NOW()
+)
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    password = VALUES(password),
+    role = 'admin',
+    provider = 'manual';
+
 -- =========================
 -- UPGRADE EXISTING DATABASE
 -- Statements ini aman dijalankan ulang melalui run_migration.py.
