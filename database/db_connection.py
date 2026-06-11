@@ -250,12 +250,59 @@ class DatabaseConnection:
 
             # 1. Try to find existing row
             existing = conn.execute(
-                text("SELECT id FROM ingredients WHERE name = :name LIMIT 1"),
+                text(
+                    """
+                    SELECT id, description, `function`
+                    FROM ingredients
+                    WHERE name = :name
+                    LIMIT 1
+                    """
+                ),
                 {"name": name},
-            ).fetchone()
+            ).mappings().first()
 
             if existing:
-                ingredient["id"] = existing.id if hasattr(existing, "id") else existing[0]
+                ingredient["id"] = existing.get("id")
+
+                dataset_description = str(
+                    ingredient.get("dataset_description") or ""
+                ).strip()
+                dataset_functions = str(
+                    ingredient.get("dataset_functions") or ""
+                ).strip()
+                current_description = str(existing.get("description") or "").strip()
+                current_function = str(existing.get("function") or "").strip()
+
+                updates = {}
+                if dataset_description and (
+                    not current_description
+                    or current_description.lower()
+                    in {"unknown", "ingredient not found in database."}
+                ):
+                    updates["description"] = dataset_description
+
+                if dataset_functions and (
+                    not current_function or current_function.lower() == "unknown"
+                ):
+                    updates["function"] = dataset_functions
+
+                if updates:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE ingredients
+                            SET description = COALESCE(:description, description),
+                                `function` = COALESCE(:function, `function`)
+                            WHERE id = :id
+                            """
+                        ),
+                        {
+                            "id": ingredient["id"],
+                            "description": updates.get("description"),
+                            "function": updates.get("function"),
+                        },
+                    )
+
                 logger.debug(f"Resolved existing ingredient: {name} -> id={ingredient['id']}")
                 continue
 
