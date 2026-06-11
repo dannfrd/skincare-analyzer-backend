@@ -21,6 +21,23 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+DEFAULT_MODEL_CANDIDATES = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+]
+
+
+class GeminiFallbackError(RuntimeError):
+    def __init__(self, models_tried: List[str], error_summaries: List[str]):
+        self.models_tried = models_tried
+        self.error_summaries = error_summaries
+        models = ", ".join(models_tried) or "tidak ada"
+        super().__init__(
+            "Semua kandidat model Gemini sedang tidak tersedia atau kuotanya habis "
+            f"(dicoba: {models}). Silakan coba lagi beberapa saat."
+        )
 
 
 def _load_legacy_sdk():
@@ -63,9 +80,8 @@ def _extract_response_text(response: Any) -> str:
 
 def _model_candidates() -> List[str]:
     configured = [item.strip() for item in os.getenv("GEMINI_MODEL_CANDIDATES", "").split(",") if item.strip()]
-    defaults = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
-    candidates = [GEMINI_MODEL] + configured + defaults
+    candidates = [GEMINI_MODEL] + configured + DEFAULT_MODEL_CANDIDATES
     deduplicated: List[str] = []
     seen = set()
     for candidate in candidates:
@@ -101,6 +117,19 @@ def _is_non_retryable_request_error(exc: Exception) -> bool:
         "failed precondition",
     ]
     return any(marker in text for marker in non_retryable_markers)
+
+
+def _summarize_model_error(exc: Exception) -> str:
+    text = _error_text(exc)
+    if "429" in text or "resource_exhausted" in text or "quota" in text:
+        return "kuota/rate limit habis"
+    if "503" in text or "unavailable" in text or "high demand" in text:
+        return "layanan sedang sibuk"
+    if "404" in text or "not found" in text:
+        return "model tidak tersedia"
+    if "timeout" in text or "deadline" in text:
+        return "request timeout"
+    return "request gagal"
 
 
 def _build_db_context(matched_ingredients: List[Dict[str, Any]] | None) -> str:
@@ -199,9 +228,11 @@ FORMAT JAWABAN (Jawab dengan paragraf yang rapi dan mengalir):
 
 
 def _call_gemini(prompt: str) -> Dict[str, Any]:
-    model_errors: List[str] = []
+    models_tried: List[str] = []
+    error_summaries: List[str] = []
 
     for model in _model_candidates():
+        models_tried.append(model)
         try:
             if GEMINI_SDK_MODE == "google-genai":
                 response = client.models.generate_content(
@@ -218,21 +249,18 @@ def _call_gemini(prompt: str) -> Dict[str, Any]:
                 return {
                     "text": text,
                     "model": model,
-                    "models_tried": [attempt.split(":", 1)[0] for attempt in model_errors] + [model],
+                    "models_tried": models_tried,
                 }
-            model_errors.append(f"{model}: empty response")
+            error_summaries.append(f"{model}: respons kosong")
         except Exception as exc:
             if _is_auth_error(exc):
                 raise RuntimeError("GEMINI_API_KEY tidak valid atau tidak punya izin akses model.") from exc
 
-            model_errors.append(f"{model}: {exc}")
+            error_summaries.append(f"{model}: {_summarize_model_error(exc)}")
             if _is_non_retryable_request_error(exc):
                 break
 
-    raise RuntimeError(
-        "Semua kandidat model Gemini gagal. "
-        f"Detail: {' || '.join(model_errors)}"
-    )
+    raise GeminiFallbackError(models_tried, error_summaries)
 
 
 def analyze_ingredients_with_ai(
@@ -288,9 +316,13 @@ def analyze_ingredients_with_ai(
         return timeout_message
 
     if error_holder["value"] is not None:
+        request_error = error_holder["value"]
+        models_tried = getattr(request_error, "models_tried", None)
+        if models_tried:
+            result_holder["models_tried"] = models_tried
         failure_message = (
             "Analisis AI gagal: "
-            f"{error_holder['value']}. Ringkasan rule-based tetap digunakan."
+            f"{request_error} Ringkasan rule-based tetap digunakan."
         )
         if include_metadata:
             return {
@@ -448,4 +480,3 @@ FORMAT JAWABAN WAJIB JSON ARRAY BERISI STRING (TANPA teks lain di luar JSON):
     request_thread.join(timeout=GEMINI_TIMEOUT_SECONDS)
 
     return result_holder["value"]
-
