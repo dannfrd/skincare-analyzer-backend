@@ -3,6 +3,7 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from qdrant_client import QdrantClient
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 from modules.embedding_utils import get_embedding
 
 # Qdrant Database Path
@@ -11,6 +12,11 @@ QDRANT_DATA_DIR = os.path.join(
     "qdrant_data"
 )
 COLLECTION_NAME = "skincare_ingredients"
+
+
+def _normalize_name(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9\s\-\+\./]", " ", value.upper())
+    return re.sub(r"\s+", " ", normalized).strip()
 
 # Initialize client lazily or on module load
 try:
@@ -40,21 +46,46 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
         return {}
         
     try:
-        vector = get_embedding(ingredient_name)
-        search_result = _qdrant_client.search(
+        normalized_name = _normalize_name(ingredient_name)
+        exact_matches, _ = _qdrant_client.scroll(
             collection_name=COLLECTION_NAME,
-            query_vector=vector,
-            limit=1
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="normalized_name",
+                        match=MatchValue(value=normalized_name),
+                    )
+                ]
+            ),
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
         )
-        if not search_result:
-            return {}
-            
-        best_hit = search_result[0]
-        # We can set a score threshold to ensure relevance, e.g. 0.55
-        if best_hit.score < 0.55:
-            return {}
-            
-        payload = best_hit.payload
+
+        if exact_matches:
+            payload = exact_matches[0].payload or {}
+            score = 1.0
+        else:
+            vector = get_embedding(ingredient_name)
+            search_result = _qdrant_client.search(
+                collection_name=COLLECTION_NAME,
+                query_vector=vector,
+                limit=1
+            )
+            if not search_result:
+                return {}
+
+            best_hit = search_result[0]
+            if best_hit.score < 0.55:
+                return {}
+
+            payload = best_hit.payload or {}
+            score = best_hit.score
+
+            # Avoid assigning metadata from a semantically similar but different ingredient.
+            if _normalize_name(str(payload.get("name") or "")) != normalized_name:
+                return {}
+
         if not payload:
             return {}
             
@@ -83,7 +114,7 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
             "found_in_products": payload.get("found_in_products", []),
             "sources": payload.get("sources", []),
             "found_in_dataset": True,
-            "score": best_hit.score
+            "score": score
         }
     except Exception as e:
         print(f"Error querying Qdrant for {ingredient_name}: {e}")

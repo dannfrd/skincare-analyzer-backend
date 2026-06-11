@@ -164,32 +164,51 @@ def _load_incidecoder_ingredients_dataset() -> Dict[str, Dict[str, str]]:
 
     knowledge: Dict[str, Dict[str, str]] = {}
     try:
-        with open(DATASET_INCIDECODER_INGREDIENTS, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                name = str(row.get("inci_name") or "").strip()
-                if not name:
-                    continue
-                
-                key = _normalize_name(name)
-                if not key:
-                    continue
-                
-                rating = str(row.get("rating") or "").strip()
-                functions = str(row.get("functions") or "").strip()
-                
-                # Check for "description;;" column due to possible CSV formatting quirks
-                description = str(row.get("description") or row.get("description;;") or "").strip()
-                if description.endswith(";;"):
-                    description = description[:-2].strip()
-                
-                knowledge[key] = {
-                    "name": name,
-                    "rating": rating,
-                    "functions": functions,
-                    "description": description,
-                    "source": "incidecoder"
-                }
+        with open(
+            DATASET_INCIDECODER_INGREDIENTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+        ) as csv_file:
+            lines = csv_file.read().splitlines()
+
+        for raw_line in lines[1:]:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            # This export wraps each complete CSV record in an extra quote and
+            # appends ";;", so a normal DictReader sees the row as one field.
+            if line.startswith('"') and line.endswith('";;'):
+                line = line[1:-3]
+            elif line.endswith(";;"):
+                line = line[:-2]
+
+            line = line.replace('""', '"')
+            values = next(csv.reader([line]), [])
+            if len(values) < 5:
+                continue
+
+            _, name, rating, functions, description = values[:5]
+            name = str(name or "").strip()
+            if not name:
+                continue
+
+            key = _normalize_name(name)
+            if not key:
+                continue
+
+            description = str(description or "").strip()
+            functions = str(functions or "").strip()
+            rating = str(rating or "").strip()
+
+            knowledge[key] = {
+                "name": name,
+                "rating": rating,
+                "functions": functions,
+                "description": description,
+                "source": "incidecoder"
+            }
     except Exception as e:
         print(f"Error loading INCIDecoder ingredients: {e}")
     return knowledge
@@ -257,6 +276,7 @@ def setup_qdrant():
     for key in all_keys:
         merged = {
             "name": "",
+            "normalized_name": key,
             "description": "",
             "functions": "",
             "warnings": "",
