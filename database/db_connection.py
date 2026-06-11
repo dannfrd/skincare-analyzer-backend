@@ -226,9 +226,10 @@ class DatabaseConnection:
 
     def _resolve_ingredient_ids(self, conn, matched_ingredients: List[Dict[str, Any]]) -> None:
         """
-        Ensures ALL ingredients (including unknown ones) have a database ID
-        by looking them up or inserting them into the ingredients table.
-        This makes every scanned ingredient individually trackable.
+        Resolve known ingredients and insert dataset-backed ingredients.
+
+        Unknown OCR text without an exact dataset match stays in the analysis
+        payload but is not promoted into the master ingredients table.
         """
         if not self._table_exists(conn, "ingredients"):
             return
@@ -306,7 +307,12 @@ class DatabaseConnection:
                 logger.debug(f"Resolved existing ingredient: {name} -> id={ingredient['id']}")
                 continue
 
-            # 2. Auto-insert (including unknown / unmatched ingredients from OCR)
+            status = str(ingredient.get("status") or "").strip().lower()
+            if status == "unknown" and not ingredient.get("found_in_dataset"):
+                logger.info("Skipped unknown OCR token from master data: %s", name)
+                continue
+
+            # 2. Auto-insert ingredients backed by DB matching or the dataset.
             desc = str(
                 ingredient.get("dataset_description") or ingredient.get("description") or ""
             ).strip()
@@ -315,7 +321,6 @@ class DatabaseConnection:
             ).strip() or "Unknown"
 
             # Determine risk level
-            status = str(ingredient.get("status") or "").strip().lower()
             if ingredient.get("dataset_harmful"):
                 risk_level = "high"
             elif status == "unknown":
