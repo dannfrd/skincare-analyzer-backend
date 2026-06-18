@@ -623,54 +623,6 @@ def get_recommendations(
     return {"recommendations": result, "mode_used": mode}
 
 
-<<<<<<< HEAD
-=======
-@app.post("/admin/reingest")
-def admin_reingest(_: None = Depends(require_monitoring_access)):
-    """
-    Trigger re-ingestion of all datasets into Qdrant dari dalam backend.
-
-    Keunggulan vs menjalankan script terpisah:
-    - Berjalan dalam proses yang SAMA → tidak ada konflik file lock Qdrant
-    - Tidak memerlukan Qdrant server Docker → hemat RAM (tidak ada overhead)
-    - Selama ingest, /recommendations otomatis fallback ke string-overlap
-
-    Cara panggil:
-        curl -X POST http://VPS_IP:8000/admin/reingest \\
-             -H "X-Api-Key: YOUR_MONITORING_KEY"
-
-    Atau dengan JWT admin:
-        curl -X POST http://VPS_IP:8000/admin/reingest \\
-             -H "Authorization: Bearer YOUR_ADMIN_JWT"
-    """
-    import threading
-    from modules.qdrant_setup import setup_qdrant
-
-    def _run_ingest():
-        _set_ingesting(True)
-        try:
-            print("[reingest] Starting Qdrant re-ingestion...")
-            setup_qdrant()
-            print("[reingest] Done.")
-        except Exception as e:
-            print(f"[reingest] ERROR: {e}")
-        finally:
-            _set_ingesting(False)
-
-    t = threading.Thread(target=_run_ingest, daemon=True, name="qdrant-reingest")
-    t.start()
-
-    return {
-        "status": "started",
-        "message": (
-            "Re-ingestion berjalan di background. "
-            "Selama proses, /recommendations menggunakan string-overlap fallback. "
-            "Proses selesai dalam beberapa menit."
-        ),
-    }
->>>>>>> e799fe35978c9fa2c5cc05f6bdf085f16210d16f
-
-
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
     total_identified = expert_report.get("total_ingredients_identified", 0)
     unknown_count = expert_report.get("total_unknown", 0)
