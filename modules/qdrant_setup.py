@@ -462,65 +462,72 @@ def setup_qdrant():
 
     print(f"Connecting to Qdrant ({get_qdrant_mode()})...")
     client = get_qdrant_client()
-    
-    if client.collection_exists(COLLECTION_NAME):
-        print(f"Collection '{COLLECTION_NAME}' already exists. Deleting it to recreate...")
-        client.delete_collection(COLLECTION_NAME)
+    try:
+        if client.collection_exists(COLLECTION_NAME):
+            print(f"Collection '{COLLECTION_NAME}' already exists. Deleting it to recreate...")
+            client.delete_collection(COLLECTION_NAME)
 
-    print(f"Creating collection '{COLLECTION_NAME}'...")
-    client.create_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
-    )
-    
-    print("Preparing documents for vectorization via Gemini API...")
-    points = []
-    
-    for idx, item in enumerate(merged_data_list, start=1):
-        doc_text = f"Ingredient: {item['name']}\n"
-        if item.get('rating'):
-            doc_text += f"Rating: {item['rating']}\n"
-        if item.get('description'):
-            doc_text += f"Description: {_clip(item['description'], 300)}\n"
-        if item.get('functions'):
-            doc_text += f"Functions: {item['functions']}\n"
-        if item.get('harmful'):
-            doc_text += f"Status: HARMFUL (BPOM Banned)\n"
-        if item.get('found_in_products'):
-            products_str = ", ".join(item['found_in_products'])
-            doc_text += f"Found in products: {products_str}\n"
-
-        print(f"Generating embedding {idx}/{len(merged_data_list)}: {item['name'][:30].encode('ascii', 'ignore').decode('ascii')}")
-        try:
-            vector = get_embedding(doc_text)
-        except Exception as e:
-            print(f"Failed to embed {item['name']}: {e}")
-            continue
-
-        points.append(
-            PointStruct(
-                id=idx,
-                vector=vector,
-                payload=item
-            )
+        print(f"Creating collection '{COLLECTION_NAME}'...")
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
         )
         
-        # Batch insert to avoid huge memory/API limits
-        if len(points) >= 100:
+        print("Preparing documents for vectorization via Gemini API...")
+        points = []
+        
+        for idx, item in enumerate(merged_data_list, start=1):
+            doc_text = f"Ingredient: {item['name']}\n"
+            if item.get('rating'):
+                doc_text += f"Rating: {item['rating']}\n"
+            if item.get('description'):
+                doc_text += f"Description: {_clip(item['description'], 300)}\n"
+            if item.get('functions'):
+                doc_text += f"Functions: {item['functions']}\n"
+            if item.get('harmful'):
+                doc_text += f"Status: HARMFUL (BPOM Banned)\n"
+            if item.get('found_in_products'):
+                products_str = ", ".join(item['found_in_products'])
+                doc_text += f"Found in products: {products_str}\n"
+
+            print(f"Generating embedding {idx}/{len(merged_data_list)}: {item['name'][:30].encode('ascii', 'ignore').decode('ascii')}")
+            try:
+                vector = get_embedding(doc_text)
+            except Exception as e:
+                print(f"Failed to embed {item['name']}: {e}")
+                continue
+
+            points.append(
+                PointStruct(
+                    id=idx,
+                    vector=vector,
+                    payload=item
+                )
+            )
+            
+            # Batch insert to avoid huge memory/API limits
+            if len(points) >= 100:
+                client.upsert(
+                    collection_name=COLLECTION_NAME,
+                    points=points
+                )
+                print(f"Upserted {idx} points...")
+                points = []
+                
+        if points:
             client.upsert(
                 collection_name=COLLECTION_NAME,
                 points=points
             )
-            print(f"Upserted {idx} points...")
-            points = []
-            
-    if points:
-        client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=points
-        )
-    
-    print(f"Successfully ingested ingredients into Qdrant collection '{COLLECTION_NAME}'.")
+        
+        print(f"Successfully ingested ingredients into Qdrant collection '{COLLECTION_NAME}'.")
+    finally:
+        try:
+            client.close()
+            print("Qdrant client connection closed.")
+        except Exception as e:
+            print(f"Error closing Qdrant client: {e}")
+
 
 
 if __name__ == "__main__":
