@@ -2,9 +2,15 @@ import csv
 import os
 import re
 from typing import Any, Dict, List, Tuple
-from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from modules.embedding_utils import get_embedding
+from modules.qdrant_client_factory import (
+    get_qdrant_client,
+    get_qdrant_mode,
+    QDRANT_DATA_DIR,
+    COLLECTION_NAME,
+    VECTOR_SIZE,
+)
 
 # Dataset paths
 DATASET_DIR = os.path.join(
@@ -23,13 +29,6 @@ DATASET_INCIDECODER_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_ingredi
 DATASET_INCIDECODER_PRODUCTS = os.path.join(DATASET_DIR, "incidecoder_products.csv")
 DATASET_INCIDECODER_PRODUCT_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_product_ingredients.csv")
 
-QDRANT_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "qdrant_data"
-)
-
-COLLECTION_NAME = "skincare_ingredients"
-VECTOR_SIZE = 384  # sentence-transformers all-MiniLM-L6-v2 vector size
 
 
 def _normalize_name(value: str) -> str:
@@ -461,10 +460,8 @@ def setup_qdrant():
     
     print(f"Total merged ingredients: {len(merged_data_list)}")
 
-    print(f"Initializing Qdrant Client at {QDRANT_DATA_DIR}")
-    os.makedirs(QDRANT_DATA_DIR, exist_ok=True)
-    
-    client = QdrantClient(path=QDRANT_DATA_DIR)
+    print(f"Connecting to Qdrant ({get_qdrant_mode()})...")
+    client = get_qdrant_client()
     
     if client.collection_exists(COLLECTION_NAME):
         print(f"Collection '{COLLECTION_NAME}' already exists. Deleting it to recreate...")

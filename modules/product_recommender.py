@@ -11,13 +11,23 @@ Strategy 2 (String-overlap fallback):
   - Classic substring overlap against ingredient_raw
   - Used when Qdrant is unavailable or returns < min_results
 
-The two strategies can be combined for a hybrid score.
+CATATAN PENTING (file-local mode):
+  Qdrant file-local client HARUS ditutup (client.close()) setelah setiap
+  operasi agar tidak ada file lock yang tersisa. Jika ada lock yang tidak
+  dilepas saat ingest berjalan, akan terjadi error "AlreadyLocked".
+  Solusi: gunakan _qdrant_search() yang selalu buka + tutup client.
 """
 
 import os
 import re
 import csv
+import threading
 from typing import Any, Dict, List, Optional, Tuple
+
+from modules.qdrant_client_factory import (
+    get_qdrant_client as _factory_get_client,
+    COLLECTION_NAME,
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -28,12 +38,6 @@ DATASET_DIR = os.path.join(
 )
 PRODUCTS_CSV = os.path.join(DATASET_DIR, "incidecoder_products.csv")
 
-QDRANT_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "qdrant_data",
-)
-COLLECTION_NAME = "skincare_ingredients"
-
 # Minimum cosine similarity to consider an ingredient "semantically similar"
 SEMANTIC_THRESHOLD = 0.72
 
@@ -43,6 +47,19 @@ TOP_K_PER_INGREDIENT = 8
 # Minimum score fraction (0..1) for a product to be included in results
 MIN_PRODUCT_SCORE = 0.10
 
+# ── Ingest lock flag ───────────────────────────────────────────────────────────
+# Saat backend melakukan reingest (via /admin/reingest), flag ini True
+# sehingga semantic search dilewati (fallback ke string-overlap)
+
+_is_ingesting: bool = False
+_ingest_lock = threading.Lock()
+
+
+def set_ingesting(state: bool) -> None:
+    """Dipanggil oleh endpoint /admin/reingest untuk block semantic search."""
+    global _is_ingesting
+    _is_ingesting = state
+
 
 # ── In-memory cache ────────────────────────────────────────────────────────────
 
@@ -51,9 +68,9 @@ _products_by_id_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    """Load and cache incidecoder_products.csv in two forms:
-    - list  for string-overlap fallback
-    - dict  keyed by product id for semantic lookup
+    """Load dan cache incidecoder_products.csv dalam dua bentuk:
+    - list  untuk string-overlap fallback
+    - dict  keyed by product id untuk semantic lookup
     """
     global _products_cache, _products_by_id_cache
     if _products_cache:
@@ -75,7 +92,6 @@ def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
                 continue
 
             raw = str(row.get("ingredient_raw") or "")
-            # Normalise: strip parenthetical INCI aliases e.g. "Water (Aqua)" → "water"
             ings = [
                 re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
                 for part in raw.split(",")
@@ -105,11 +121,7 @@ def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
 def _string_overlap_score(
     query_ings: List[str], product_ings: List[str]
 ) -> Tuple[float, List[str]]:
-    """Recall-based score: fraction of query ingredients found in the product.
-    
-    Uses bidirectional substring matching to handle INCI name variations
-    (e.g. 'glycerin' matches 'glycerin' in 'propylene glycol' — still partial).
-    """
+    """Recall-based score: fraksi query ingredients yang ditemukan di produk."""
     if not query_ings or not product_ings:
         return 0.0, []
 
@@ -159,17 +171,6 @@ def get_string_overlap_recommendations(
 
 # ── Semantic strategy via Qdrant ───────────────────────────────────────────────
 
-def _get_qdrant_client():
-    """Return a QdrantClient instance (file-local mode)."""
-    try:
-        from qdrant_client import QdrantClient
-        if not os.path.exists(QDRANT_DATA_DIR):
-            return None
-        return QdrantClient(path=QDRANT_DATA_DIR)
-    except Exception:
-        return None
-
-
 def _get_embedding(text: str) -> Optional[List[float]]:
     """Wrapper around the project's existing embedding utility."""
     try:
@@ -177,6 +178,34 @@ def _get_embedding(text: str) -> Optional[List[float]]:
         return get_embedding(text)
     except Exception:
         return None
+
+
+def _qdrant_search(vector: List[float], limit: int, threshold: float) -> List[Any]:
+    """
+    Buka Qdrant, lakukan search, tutup client segera setelahnya.
+    
+    Pola buka-pakai-tutup ini penting untuk file-local mode agar tidak
+    ada file lock yang tersisa setelah fungsi selesai.
+    """
+    client = None
+    try:
+        client = _factory_get_client()
+        results = client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=vector,
+            limit=limit,
+            score_threshold=threshold,
+        )
+        return results
+    except Exception:
+        return []
+    finally:
+        # KRITIS: selalu tutup client agar file lock dilepas
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def get_semantic_recommendations(
@@ -188,22 +217,22 @@ def get_semantic_recommendations(
     Semantic product recommendation via Qdrant similarity search.
 
     Steps:
-    1. For each scanned ingredient, embed its name and search Qdrant for the
-       most similar ingredients (by cosine similarity > threshold).
-    2. Collect the related_product_ids stored in each hit's payload.
-    3. Score each product by how many scanned ingredients have a semantically
-       similar match inside that product's ingredient list.
-    4. Enrich with product metadata and return sorted results.
+    1. Untuk setiap ingredient yang di-scan, embed namanya dan cari di Qdrant
+       ingredient paling mirip secara semantik (cosine similarity > threshold).
+    2. Kumpulkan related_product_ids dari payload setiap hit.
+    3. Score tiap produk berdasarkan berapa banyak query ingredient yang
+       punya match semantik di dalam ingredient list produk tersebut.
+    4. Enrich dengan metadata produk dan return sorted results.
     """
-    client = _get_qdrant_client()
-    if client is None:
+    # Skip jika sedang proses ingest (hindari lock conflict)
+    if _is_ingesting:
         return []
 
     _, products_by_id = _load_products()
     if not products_by_id:
         return []
 
-    # product_id → {score_sum, matched_ingredient_names, match_details}
+    # product_id → {score_sum, hit_count, matched_pairs}
     product_votes: Dict[str, Dict[str, Any]] = {}
 
     for ing_name in ingredient_names:
@@ -215,20 +244,13 @@ def get_semantic_recommendations(
         if not vector:
             continue
 
-        try:
-            hits = client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=vector,
-                limit=TOP_K_PER_INGREDIENT,
-                score_threshold=semantic_threshold,
-            )
-        except Exception:
-            continue
+        # Buka Qdrant, search, tutup — semua dalam satu call
+        hits = _qdrant_search(vector, TOP_K_PER_INGREDIENT, semantic_threshold)
 
         for hit in hits:
             payload = hit.payload or {}
             related_pids = payload.get("related_product_ids") or []
-            sim_score = hit.score  # cosine similarity 0..1
+            sim_score = hit.score
             similar_name = payload.get("name", "")
             functions = payload.get("functions", "")
 
@@ -257,8 +279,6 @@ def get_semantic_recommendations(
         if not prod:
             continue
 
-        # Normalise score: average similarity across all matched pairs,
-        # weighted by coverage (how many query ingredients had a hit)
         avg_sim = data["score_sum"] / data["hit_count"] if data["hit_count"] else 0
         coverage = min(data["hit_count"] / n_query, 1.0) if n_query else 0
         final_score = avg_sim * 0.6 + coverage * 0.4
@@ -266,7 +286,6 @@ def get_semantic_recommendations(
         if final_score < MIN_PRODUCT_SCORE:
             continue
 
-        # Deduplicate matched ingredient pairs
         seen_query_ings = set()
         matched_display = []
         match_functions = set()
@@ -281,7 +300,6 @@ def get_semantic_recommendations(
                     if f:
                         match_functions.add(f)
 
-        # Build human-readable match reason
         if match_functions:
             reason_funcs = ", ".join(sorted(match_functions)[:3])
             match_reason = f"Fungsi serupa: {reason_funcs}"
@@ -300,7 +318,6 @@ def get_semantic_recommendations(
         })
 
     results.sort(key=lambda x: x["_score"], reverse=True)
-    # Deduplicate by product name
     seen_names = set()
     deduped = []
     for r in results:
@@ -324,8 +341,8 @@ def get_recommendations(
 
     mode:
       'semantic'  — Qdrant semantic search only
-      'overlap'   — string-overlap only (legacy)
-      'auto'      — try semantic first, fall back to overlap if < 3 results
+      'overlap'   — string-overlap only (legacy, fast)
+      'auto'      — semantic first, fallback ke overlap jika < 3 hasil
     """
     if mode == "overlap":
         return get_string_overlap_recommendations(ingredient_names, limit)
@@ -338,10 +355,9 @@ def get_recommendations(
     if len(semantic_results) >= 3:
         return semantic_results
 
-    # Fallback: merge semantic results with overlap results
+    # Fallback: merge semantic + overlap
     overlap_results = get_string_overlap_recommendations(ingredient_names, limit)
-    
-    # Combine, dedup by product name, prefer semantic results
+
     seen = {r["name"].lower().strip() for r in semantic_results}
     merged = list(semantic_results)
     for r in overlap_results:

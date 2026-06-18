@@ -2,21 +2,24 @@
 """
 Script untuk memasukkan data ke Qdrant di VPS.
 
-Usage (di VPS setelah upload dataset baru):
-    python scripts/ingest_qdrant.py
+CARA TERBAIK (hemat RAM, tanpa Docker Qdrant):
+  Gunakan endpoint /admin/reingest dari backend yang sudah jalan.
+  Backend berjalan dalam proses yang sama → tidak ada konflik file lock.
 
-Script ini akan:
-1. Load semua dataset (ingredients, categories, BPOM, incidecoder + relasi produk)
-2. Buat/recreate Qdrant collection 'skincare_ingredients'
-3. Generate embeddings untuk setiap ingredient
-4. Simpan ke Qdrant (file-local mode di qdrant_data/)
+  curl -X POST http://localhost:8000/admin/reingest \
+       -H "X-Api-Key: YOUR_MONITORING_KEY"
 
-Cara cek mode Qdrant di VPS:
-    ls ~/skincare-analyzer-backend/qdrant_data/   # kalau ada = mode lokal (ini yang dipakai)
-    ss -tlnp | grep 6333                           # kalau ada = Qdrant server terpisah
+  Ganti YOUR_MONITORING_KEY dengan nilai MONITORING_API_KEY di .env
 
-Untuk cek apakah Qdrant server berjalan (HTTP mode):
-    curl http://localhost:6333/collections         # kalau OK = server mode
+CARA ALTERNATIF (jika backend belum jalan):
+  Stop backend dulu, jalankan script ini, lalu start ulang:
+
+  docker-compose stop backend
+  python3 scripts/ingest_qdrant.py
+  docker-compose start backend
+
+  JANGAN jalankan script ini saat backend sedang berjalan!
+  File lock Qdrant tidak bisa diakses dua proses sekaligus.
 """
 
 import os
@@ -35,6 +38,7 @@ try:
 except ImportError:
     print("⚠️  python-dotenv not installed, skipping .env load")
 
+from modules.qdrant_client_factory import get_qdrant_mode
 from modules.qdrant_setup import setup_qdrant
 
 if __name__ == "__main__":
@@ -42,25 +46,38 @@ if __name__ == "__main__":
     print("  Skincare Analyzer — Qdrant Ingestion Script")
     print("=" * 60)
     print()
+    print("⚠️  PERINGATAN: Script ini hanya boleh dijalankan saat")
+    print("    backend TIDAK sedang berjalan!")
+    print()
+    print("💡 Cara yang lebih baik (tanpa stop backend):")
+    monitoring_key = os.getenv("MONITORING_API_KEY", "YOUR_MONITORING_KEY")
+    print(f"    curl -X POST http://localhost:8000/admin/reingest \\")
+    print(f"         -H 'X-Api-Key: {monitoring_key}'")
+    print()
+    print(f"Mode Qdrant  : {get_qdrant_mode()}")
+    print()
     print("Dataset yang akan di-load:")
     print("  - cosmetic_ingredients.csv")
     print("  - ingredients_category.csv")
     print("  - BPOM harmful CSV")
-    print("  - incidecoder_ingredients.csv  (+ inci_id per bahan)")
+    print("  - incidecoder_ingredients.csv")
     print("  - incidecoder_products.csv")
-    print("  - incidecoder_product_ingredients.csv  ← BARU (relasi)")
+    print("  - incidecoder_product_ingredients.csv  ← relasi bahan-produk")
     print()
-    print("Mulai proses ingestion...\n")
-    
+
+    resp = input("Lanjutkan? Backend sudah di-stop? (y/N): ").strip().lower()
+    if resp != "y":
+        print("Dibatalkan.")
+        sys.exit(0)
+
+    print("\nMulai proses ingestion...\n")
     setup_qdrant()
-    
+
     print()
     print("=" * 60)
     print("✅ Ingestion selesai!")
     print("=" * 60)
     print()
     print("Langkah selanjutnya:")
-    print("  1. Restart backend: sudo systemctl restart skincare-backend")
-    print("     atau: docker-compose restart backend")
-    print("  2. Test endpoint: curl 'http://localhost:8000/recommendations?ingredients=Glycerin,Niacinamide'")
-    print("  3. Cek mode yang digunakan di response field 'mode_used'")
+    print("  docker-compose start backend")
+    print("  curl 'http://localhost:8000/recommendations?ingredients=Glycerin,Niacinamide'")
