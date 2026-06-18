@@ -578,6 +578,50 @@ def process_text_analysis(
     return result_data
 
 
+# ─── Product Recommendations (INCIDecoder Dataset) ───────────────────────────
+# Delegates to modules/product_recommender.py which implements:
+#   - Strategy 1: Qdrant semantic similarity search
+#   - Strategy 2: String-overlap fallback
+#   - 'auto' mode: semantic first, fallback to overlap if < 3 results
+
+from modules.product_recommender import get_recommendations as _recommender_get
+
+
+@app.get("/recommendations")
+def get_recommendations(
+    ingredients: str = Query(..., description="Comma-separated ingredient names from scan result"),
+    limit: int = Query(default=8, ge=1, le=20),
+    mode: str = Query(
+        default="auto",
+        description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
+    ),
+):
+    """
+    Return top-N similar products from the INCIDecoder dataset.
+
+    Strategy options (mode param):
+    - 'auto'     : Qdrant semantic search first, falls back to string-overlap
+                   when fewer than 3 semantic results are found.
+    - 'semantic' : Pure Qdrant vector similarity (requires Qdrant data to be
+                   set up via qdrant_setup.py).
+    - 'overlap'  : Classic substring-overlap (fast, no Qdrant required).
+
+    Response fields per product:
+      name, brand, category_tags, url, similarity_pct, matched_ingredients,
+      match_reason (e.g. "Fungsi serupa: moisturizer, humectant")
+    """
+    ingredient_names = [i.strip() for i in ingredients.split(",") if i.strip()]
+    if not ingredient_names:
+        return {"recommendations": [], "mode_used": mode}
+
+    valid_modes = {"auto", "semantic", "overlap"}
+    if mode not in valid_modes:
+        mode = "auto"
+
+    result = _recommender_get(ingredient_names, limit=limit, mode=mode)
+    return {"recommendations": result, "mode_used": mode}
+
+
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
     total_identified = expert_report.get("total_ingredients_identified", 0)
     unknown_count = expert_report.get("total_unknown", 0)
