@@ -596,6 +596,7 @@ def get_recommendations(
         default="auto",
         description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
     ),
+    category: Optional[str] = Query(default=None, description="Category of the scanned product"),
 ):
     """
     Return top-N similar products from the INCIDecoder dataset.
@@ -619,7 +620,7 @@ def get_recommendations(
     if mode not in valid_modes:
         mode = "auto"
 
-    result = _recommender_get(ingredient_names, limit=limit, mode=mode)
+    result = _recommender_get(ingredient_names, limit=limit, mode=mode, category=category)
     return {"recommendations": result, "mode_used": mode}
 
 
