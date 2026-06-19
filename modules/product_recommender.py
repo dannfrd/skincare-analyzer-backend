@@ -29,6 +29,43 @@ from modules.qdrant_client_factory import (
     COLLECTION_NAME,
 )
 
+def classify_category(name: str) -> str:
+    n = name.lower()
+    if any(w in n for w in ['sunscreen', 'spf', 'uv', 'sun block', 'sun lotion', 'sun protection']):
+        return 'sunscreen'
+    if any(w in n for w in ['serum', 'essence', 'ampoule', 'booster', 'concentrate', 'treatment']):
+        return 'serum'
+    if any(w in n for w in ['cleanser', 'wash', 'foam', 'soap', 'cleansing', 'saponins', 'makeup-melting']):
+        return 'cleanser'
+    if any(w in n for w in ['moisturizer', 'cream', 'lotion', 'balm', 'gel cream', 'night cream', 'day cream', 'hydrate', 'moisturising']):
+        return 'moisturizer'
+    if any(w in n for w in ['toner', 'mist', 'spray', 'softening lotion']):
+        return 'toner'
+    if any(w in n for w in ['mask', 'sheet', 'peeling', 'peel', 'exfoliat', 'clay']):
+        return 'mask'
+    if any(w in n for w in ['oil', 'butter']):
+        return 'oil'
+    return 'other'
+
+
+def standardize_category(cat_str: Optional[str]) -> str:
+    if not cat_str:
+        return ""
+    c = cat_str.lower().strip()
+    if any(w in c for w in ['sunscreen', 'spf', 'uv', 'sun']):
+        return 'sunscreen'
+    if any(w in c for w in ['serum', 'essence', 'ampoule', 'booster', 'treatment']):
+        return 'serum'
+    if any(w in c for w in ['cleanser', 'wash', 'foam', 'soap', 'cleansing', 'facial wash', 'sabun']):
+        return 'cleanser'
+    if any(w in c for w in ['moisturizer', 'cream', 'lotion', 'balm', 'pelembab', 'moisturising']):
+        return 'moisturizer'
+    if any(w in c for w in ['toner', 'mist', 'spray', 'penyegar']):
+        return 'toner'
+    if any(w in c for w in ['mask', 'sheet', 'masker', 'peel', 'exfoliat']):
+        return 'mask'
+    return c
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 DATASET_DIR = os.path.join(
@@ -142,6 +179,7 @@ def _string_overlap_score(
 def get_string_overlap_recommendations(
     ingredient_names: List[str],
     limit: int = 8,
+    category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Classic string-overlap recommendations (legacy strategy)."""
     products, _ = _load_products()
@@ -149,8 +187,15 @@ def get_string_overlap_recommendations(
     if not query_ings or not products:
         return []
 
+    target_cat = standardize_category(category)
+
     scored = []
     for product in products:
+        if target_cat:
+            prod_cat = classify_category(product["name"] + " " + product.get("category", ""))
+            if prod_cat != target_cat:
+                continue
+
         score, matched = _string_overlap_score(query_ings, product["ingredients"])
         if score <= 0:
             continue
@@ -164,6 +209,10 @@ def get_string_overlap_recommendations(
             "matched_ingredients": matched,
             "match_reason": "Komposisi bahan serupa",
         })
+
+    # Fallback jika pencarian terlalu ketat dan mengembalikan 0 hasil
+    if target_cat and not scored:
+        return get_string_overlap_recommendations(ingredient_names, limit, category=None)
 
     scored.sort(key=lambda x: x["_score"], reverse=True)
     return [{k: v for k, v in e.items() if k != "_score"} for e in scored[:limit]]
@@ -212,6 +261,7 @@ def get_semantic_recommendations(
     ingredient_names: List[str],
     limit: int = 8,
     semantic_threshold: float = SEMANTIC_THRESHOLD,
+    category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Semantic product recommendation via Qdrant similarity search.
@@ -231,6 +281,8 @@ def get_semantic_recommendations(
     _, products_by_id = _load_products()
     if not products_by_id:
         return []
+
+    target_cat = standardize_category(category)
 
     # product_id → {score_sum, hit_count, matched_pairs}
     product_votes: Dict[str, Dict[str, Any]] = {}
@@ -279,6 +331,11 @@ def get_semantic_recommendations(
         if not prod:
             continue
 
+        if target_cat:
+            prod_cat = classify_category(prod["name"] + " " + prod.get("category", ""))
+            if prod_cat != target_cat:
+                continue
+
         avg_sim = data["score_sum"] / data["hit_count"] if data["hit_count"] else 0
         coverage = min(data["hit_count"] / n_query, 1.0) if n_query else 0
         final_score = avg_sim * 0.6 + coverage * 0.4
@@ -317,6 +374,10 @@ def get_semantic_recommendations(
             "match_reason": match_reason,
         })
 
+    # Fallback jika pencarian terlalu ketat dan mengembalikan 0 hasil
+    if target_cat and not results:
+        return get_semantic_recommendations(ingredient_names, limit, semantic_threshold, category=None)
+
     results.sort(key=lambda x: x["_score"], reverse=True)
     seen_names = set()
     deduped = []
@@ -335,6 +396,7 @@ def get_recommendations(
     ingredient_names: List[str],
     limit: int = 8,
     mode: str = "auto",
+    category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Get product recommendations using the best available strategy.
@@ -345,18 +407,18 @@ def get_recommendations(
       'auto'      — semantic first, fallback ke overlap jika < 3 hasil
     """
     if mode == "overlap":
-        return get_string_overlap_recommendations(ingredient_names, limit)
+        return get_string_overlap_recommendations(ingredient_names, limit, category=category)
 
     if mode == "semantic":
-        return get_semantic_recommendations(ingredient_names, limit)
+        return get_semantic_recommendations(ingredient_names, limit, category=category)
 
     # auto: prefer semantic, fallback to overlap
-    semantic_results = get_semantic_recommendations(ingredient_names, limit)
+    semantic_results = get_semantic_recommendations(ingredient_names, limit, category=category)
     if len(semantic_results) >= 3:
         return semantic_results
 
     # Fallback: merge semantic + overlap
-    overlap_results = get_string_overlap_recommendations(ingredient_names, limit)
+    overlap_results = get_string_overlap_recommendations(ingredient_names, limit, category=category)
 
     seen = {r["name"].lower().strip() for r in semantic_results}
     merged = list(semantic_results)
