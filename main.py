@@ -578,6 +578,52 @@ def process_text_analysis(
     return result_data
 
 
+# ─── Product Recommendations (INCIDecoder Dataset) ───────────────────────────
+# Delegates to modules/product_recommender.py which implements:
+#   - Strategy 1: Qdrant semantic similarity search
+#   - Strategy 2: String-overlap fallback
+#   - 'auto' mode: semantic first, fallback to overlap if < 3 results
+
+from modules.product_recommender import get_recommendations as _recommender_get
+from modules.product_recommender import set_ingesting as _set_ingesting
+
+
+@app.get("/recommendations")
+def get_recommendations(
+    ingredients: str = Query(..., description="Comma-separated ingredient names from scan result"),
+    limit: int = Query(default=8, ge=1, le=20),
+    mode: str = Query(
+        default="auto",
+        description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
+    ),
+    category: Optional[str] = Query(default=None, description="Category of the scanned product"),
+):
+    """
+    Return top-N similar products from the INCIDecoder dataset.
+
+    Strategy options (mode param):
+    - 'auto'     : Qdrant semantic search first, falls back to string-overlap
+                   when fewer than 3 semantic results are found.
+    - 'semantic' : Pure Qdrant vector similarity (requires Qdrant data to be
+                   set up via qdrant_setup.py).
+    - 'overlap'  : Classic substring-overlap (fast, no Qdrant required).
+
+    Response fields per product:
+      name, brand, category_tags, url, similarity_pct, matched_ingredients,
+      match_reason (e.g. "Fungsi serupa: moisturizer, humectant")
+    """
+    ingredient_names = [i.strip() for i in ingredients.split(",") if i.strip()]
+    if not ingredient_names:
+        return {"recommendations": [], "mode_used": mode}
+
+    valid_modes = {"auto", "semantic", "overlap"}
+    if mode not in valid_modes:
+        mode = "auto"
+
+    result = _recommender_get(ingredient_names, limit=limit, mode=mode, category=category)
+    return {"recommendations": result, "mode_used": mode}
+
+
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
     total_identified = expert_report.get("total_ingredients_identified", 0)
     unknown_count = expert_report.get("total_unknown", 0)
@@ -612,6 +658,44 @@ def require_monitoring_access(
             pass
 
     raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+@app.post("/admin/reingest")
+def admin_reingest(_: None = Depends(require_monitoring_access)):
+    """
+    Trigger re-ingestion of all datasets into Qdrant dari dalam backend.
+    Berjalan dalam proses yang SAMA sehingga tidak ada konflik file lock.
+    Selama proses ingest, /recommendations fallback ke string-overlap otomatis.
+
+    Cara panggil:
+        curl -X POST http://VPS_IP:8000/admin/reingest \\
+             -H "X-Api-Key: YOUR_MONITORING_KEY"
+    """
+    import threading
+    from modules.qdrant_setup import setup_qdrant
+
+    def _run_ingest():
+        _set_ingesting(True)
+        try:
+            print("[reingest] Starting Qdrant re-ingestion...")
+            setup_qdrant()
+            print("[reingest] Done.")
+        except Exception as e:
+            print(f"[reingest] ERROR: {e}")
+        finally:
+            _set_ingesting(False)
+
+    t = threading.Thread(target=_run_ingest, daemon=True, name="qdrant-reingest")
+    t.start()
+
+    return {
+        "status": "started",
+        "message": (
+            "Re-ingestion berjalan di background. "
+            "Selama proses, /recommendations menggunakan string-overlap fallback. "
+            "Proses selesai dalam beberapa menit."
+        ),
+    }
 
 
 def _current_timestamp() -> datetime:
