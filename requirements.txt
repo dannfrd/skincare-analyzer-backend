@@ -54,5 +54,6 @@ bcrypt==4.0.1
 qdrant-client[fastembed]==1.9.1
 fastembed
 sentence-transformers
-paddlepaddle
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+paddlepaddle==2.6.1
 paddleocr==2.8.1
