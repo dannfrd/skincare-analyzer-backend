@@ -88,22 +88,18 @@ class PaddleOCRProcessor:
     def extract_text(self, image_path_or_array) -> str:
         ocr = self.get_instance()
         try:
-            result = ocr.predict(image_path_or_array)
+            # In paddleocr 2.x, the method is ocr(), not predict()
+            result = ocr.ocr(image_path_or_array, cls=False)
             lines = []
             if result:
                 for res in result:
-                    data = None
-                    if hasattr(res, 'json'):
-                        data = res.json
-                    elif isinstance(res, dict):
-                        data = res
-                    
-                    if isinstance(data, dict):
-                        rec_texts = data.get("rec_texts")
-                        if not rec_texts and "res" in data and isinstance(data["res"], dict):
-                            rec_texts = data["res"].get("rec_texts")
-                        if rec_texts:
-                            lines.extend([str(t) for t in rec_texts])
+                    if res:
+                        for line in res:
+                            # Each line is: [box, (text, confidence)]
+                            if line and len(line) > 1 and isinstance(line[1], (tuple, list)):
+                                text = line[1][0]
+                                if text:
+                                    lines.append(str(text))
             return "\n".join(lines)
         except Exception as e:
             logger.error(f"PaddleOCR processing failed: {str(e)}")
