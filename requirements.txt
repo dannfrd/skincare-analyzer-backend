@@ -55,4 +55,4 @@ qdrant-client[fastembed]==1.9.1
 fastembed
 sentence-transformers
 paddlepaddle
-paddleocr
+paddleocr==2.8.1
