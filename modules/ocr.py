@@ -80,7 +80,7 @@ class PaddleOCRProcessor:
                     lang='en',
                     ocr_version='PP-OCRv4',
                     cpu_threads=2,
-                    enable_mkldnn=True
+                    enable_mkldnn=False
                 )
             except Exception as e:
                 logger.error(f"Failed to import/initialize PaddleOCR: {e}")
