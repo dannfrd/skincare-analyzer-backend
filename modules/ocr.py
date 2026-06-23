@@ -77,7 +77,8 @@ class PaddleOCRProcessor:
                     use_doc_orientation_classify=False,
                     use_doc_unwarping=False,
                     use_textline_orientation=False,
-                    lang='en'
+                    lang='en',
+                    ocr_version='PP-OCRv4'
                 )
             except Exception as e:
                 logger.error(f"Failed to import/initialize PaddleOCR: {e}")
