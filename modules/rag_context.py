@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue
-from modules.embedding_utils import get_embedding
+from modules.embedding_utils import get_embedding, get_embeddings_batch
 
 # Qdrant Database Path
 QDRANT_DATA_DIR = os.path.join(
@@ -140,9 +140,16 @@ def build_rag_context(
     selected_items: List[Dict[str, Any]] = []
     seen_names = set()
 
-    for token in cleaned_tokens:
+    # Batch embedding generation for all tokens at once
+    try:
+        vectors = get_embeddings_batch(cleaned_tokens)
+    except Exception as e:
+        print(f"Error generating batch embeddings in build_rag_context: {e}")
+        vectors = [[0.0] * 384 for _ in cleaned_tokens]
+
+    for i, token in enumerate(cleaned_tokens):
         try:
-            vector = get_embedding(token)
+            vector = vectors[i]
             search_result = _qdrant_client.search(
                 collection_name=COLLECTION_NAME,
                 query_vector=vector,

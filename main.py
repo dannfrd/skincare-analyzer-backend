@@ -24,7 +24,7 @@ from modules.expert_system import run_expert_system
 from modules.rag_context import get_ingredient_simple_description
 from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
-from modules.ocr import extract_text_from_image
+from modules.ocr import extract_text_from_image, extract_text_from_image_path
 from modules.auth_api import router as auth_router
 from sqlalchemy import text
 
@@ -40,6 +40,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    print("\n" + "="*50)
+    print("      WARMING UP MODELS (PRE-LOADING AI)      ")
+    print("="*50)
+    try:
+        from modules.embedding_utils import _get_model
+        print("Pre-loading SentenceTransformer (embeddings)...")
+        _get_model()
+    except Exception as e:
+        print(f"Error pre-loading SentenceTransformer: {e}")
+
+    engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
+    if engine == "paddleocr":
+        try:
+            from modules.ocr import PaddleOCRProcessor
+            print("Pre-loading PaddleOCR engine...")
+            PaddleOCRProcessor.get_instance()
+        except Exception as e:
+            print(f"Error pre-loading PaddleOCR: {e}")
+    else:
+        print("Tesseract OCR murni aktif (tidak perlu pre-load model di memori).")
+    print("="*50 + "\n")
+
 
 # Make sure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
@@ -385,6 +410,11 @@ def root():
 @app.post("/analyze")
 def analyze_ingredients(data: IngredientRequest, request: Request):
     raw_text = data.text
+    print("\n" + "="*50)
+    print("      TEKS OCR MENTAH DITERIMA DARI APLIKASI      ")
+    print("="*50)
+    print(raw_text)
+    print("="*50 + "\n")
     db = get_db_connection()
     user_id = _resolve_user_id_from_request(request, db)
     return process_text_analysis(
@@ -425,9 +455,8 @@ async def analyze_image(
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        # 1. OCR Preprocessing and Extraction
-        processed_image = preprocess_image(temp_path)
-        extracted_text = extract_text_from_image(processed_image)
+        # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
+        extracted_text = extract_text_from_image_path(temp_path)
         
         # Cleanup temp file
         if os.path.exists(temp_path):
