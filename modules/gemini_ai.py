@@ -438,6 +438,8 @@ TUGAS ANDA:
 2. Ekstrak HANYA nama-nama bahan tersebut.
 3. ABAIKAN teks lain seperti "Cara pakai", "Peringatan", "Netto", alamat pabrik, nomor BPOM, atau deskripsi produk.
 4. Jangan menambahkan nomor atau bullet point.
+5. PISAHKAN (split) nama bahan yang tergabung atau rapat tanpa pemisah koma akibat kesalahan pemindaian OCR (misalnya: "AQUA(WATERLCOCONUTALKANES" harus dipecah menjadi "AQUA", "WATER", "COCONUT ALKANES"; "DIMETHICONEISODECYL" dipecah menjadi "DIMETHICONE", "ISODECYL"; "CROSSPOLYMER GLYCERIN" dipecah menjadi "CROSSPOLYMER", "GLYCERIN").
+6. Pastikan setiap string dalam JSON array mewakili SATU nama bahan kosmetik (INCI) standar saja.
 
 TEKS OCR MENTAH:
 \"\"\"
