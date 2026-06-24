@@ -2,10 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install dependencies untuk OpenCV dan Tesseract OCR
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
+    libgomp1 \
     tesseract-ocr \
     tesseract-ocr-ind \
     tesseract-ocr-eng \
@@ -13,12 +13,15 @@ RUN apt-get update && apt-get install -y \
 
 COPY requirements.txt .
 
+# Pasang PyTorch CPU agar paket CUDA berukuran besar tidak ikut diunduh.
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy seluruh source code
 COPY . .
 
 EXPOSE 8000
 
-# Jalankan Uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

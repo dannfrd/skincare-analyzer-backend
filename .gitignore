@@ -1,5 +1,7 @@
-# Python Virtual Environment
+# Virtual Environment
+.venv/
 venv/
+env/
 
 # Python cache
 __pycache__/
@@ -17,3 +19,5 @@ Thumbs.db
 
 # Qdrant Database
 qdrant_data/
+
+*.json

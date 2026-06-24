@@ -148,6 +148,39 @@ CREATE TABLE IF NOT EXISTS user_histories (
         UNIQUE (user_id, analysis_id)
 );
 
+ALTER TABLE users
+    ADD COLUMN role VARCHAR(50) NULL DEFAULT 'user';
+ALTER TABLE users
+    ADD COLUMN provider VARCHAR(50) NULL DEFAULT 'manual';
+ALTER TABLE users
+    ADD COLUMN firebase_uid VARCHAR(255) NULL;
+
+UPDATE users
+SET role = 'user'
+WHERE role IS NULL OR TRIM(role) = '';
+
+INSERT INTO users (
+    name,
+    email,
+    password,
+    role,
+    provider,
+    created_at
+)
+VALUES (
+    'Dermify Administrator',
+    'dermify@gmail.com',
+    '$bcrypt-sha256$v=2,t=2b,r=12$QIomtU1atcsCJLi2stL/Hu$ZrI/Hwk54i7VNgDZxRsIT7Qfoqnz6iu',
+    'admin',
+    'manual',
+    NOW()
+)
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    password = VALUES(password),
+    role = 'admin',
+    provider = 'manual';
+
 -- =========================
 -- UPGRADE EXISTING DATABASE
 -- Statements ini aman dijalankan ulang melalui run_migration.py.
@@ -173,6 +206,10 @@ ALTER TABLE analyses
     ADD COLUMN ai_model VARCHAR(100);
 ALTER TABLE analyses
     ADD COLUMN ai_output LONGTEXT;
+ALTER TABLE analyses
+    ADD COLUMN raw_result LONGTEXT;
+ALTER TABLE users
+    ADD COLUMN profile_picture VARCHAR(255) NULL AFTER firebase_uid;
 
 DELETE duplicate_detail
 FROM analysis_details duplicate_detail
@@ -183,7 +220,8 @@ INNER JOIN analysis_details retained_detail
 
 ALTER TABLE analysis_details
     ADD CONSTRAINT unique_analysis_ingredient
-    UNIQUE (analysis_id, ingredient_id);
+    UNIQUE (analysis_id,
+     ingredient_id);
 
 DELETE duplicate_history
 FROM user_histories duplicate_history
@@ -209,3 +247,27 @@ CREATE INDEX idx_analysis_details_ingredient_id ON analysis_details(ingredient_i
 
 CREATE INDEX idx_scan_ingredients_scan_id ON scan_ingredients(scan_id);
 CREATE INDEX idx_scan_ingredients_ingredient_id ON scan_ingredients(ingredient_id);
+
+-- =========================
+-- NOTIFICATIONS
+-- =========================
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    body TEXT,
+    data JSON NULL,
+    topic VARCHAR(100) NULL,
+    tokens LONGTEXT NULL,
+    status ENUM('draft','scheduled','sent','failed') NOT NULL DEFAULT 'draft',
+    scheduled_at TIMESTAMP NULL,
+    sent_at TIMESTAMP NULL,
+    sent_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_notifications_user
+        FOREIGN KEY (sent_by) REFERENCES users(id)
+        ON DELETE SET NULL
+);
+
+CREATE INDEX idx_notifications_status ON notifications(status);
+CREATE INDEX idx_notifications_scheduled_at ON notifications(scheduled_at);

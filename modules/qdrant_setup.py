@@ -1,10 +1,16 @@
 import csv
 import os
 import re
-from typing import Any, Dict, List
-from qdrant_client import QdrantClient
+from typing import Any, Dict, List, Tuple
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from modules.embedding_utils import get_embedding
+from modules.qdrant_client_factory import (
+    get_qdrant_client,
+    get_qdrant_mode,
+    QDRANT_DATA_DIR,
+    COLLECTION_NAME,
+    VECTOR_SIZE,
+)
 
 # Dataset paths
 DATASET_DIR = os.path.join(
@@ -21,14 +27,8 @@ DATASET_BPOM_HARMFUL = os.path.join(
 )
 DATASET_INCIDECODER_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_ingredients.csv")
 DATASET_INCIDECODER_PRODUCTS = os.path.join(DATASET_DIR, "incidecoder_products.csv")
+DATASET_INCIDECODER_PRODUCT_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_product_ingredients.csv")
 
-QDRANT_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "qdrant_data"
-)
-
-COLLECTION_NAME = "skincare_ingredients"
-VECTOR_SIZE = 384  # sentence-transformers all-MiniLM-L6-v2 vector size
 
 
 def _normalize_name(value: str) -> str:
@@ -157,45 +157,157 @@ def _load_bpom_harmful_dataset() -> Dict[str, Dict[str, str]]:
     return harmful_ingredients
 
 
-def _load_incidecoder_ingredients_dataset() -> Dict[str, Dict[str, str]]:
+def _load_incidecoder_ingredients_dataset() -> Dict[str, Dict[str, Any]]:
+    """Load INCIDecoder ingredients CSV.
+    
+    Returns a dict keyed by normalized ingredient name.
+    Each value also contains 'inci_id' (the numeric ID from the CSV) so we can
+    cross-reference with the product_ingredients relation table.
+    """
     if not os.path.exists(DATASET_INCIDECODER_INGREDIENTS):
         print(f"Warning: {DATASET_INCIDECODER_INGREDIENTS} not found.")
         return {}
 
-    knowledge: Dict[str, Dict[str, str]] = {}
+    knowledge: Dict[str, Dict[str, Any]] = {}
     try:
-        with open(DATASET_INCIDECODER_INGREDIENTS, "r", encoding="utf-8-sig", errors="ignore", newline="") as csv_file:
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                name = str(row.get("inci_name") or "").strip()
-                if not name:
-                    continue
-                
-                key = _normalize_name(name)
-                if not key:
-                    continue
-                
-                rating = str(row.get("rating") or "").strip()
-                functions = str(row.get("functions") or "").strip()
-                
-                # Check for "description;;" column due to possible CSV formatting quirks
-                description = str(row.get("description") or row.get("description;;") or "").strip()
-                if description.endswith(";;"):
-                    description = description[:-2].strip()
-                
-                knowledge[key] = {
-                    "name": name,
-                    "rating": rating,
-                    "functions": functions,
-                    "description": description,
-                    "source": "incidecoder"
-                }
+        with open(
+            DATASET_INCIDECODER_INGREDIENTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+        ) as csv_file:
+            lines = csv_file.read().splitlines()
+
+        for raw_line in lines[1:]:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            # This export wraps each complete CSV record in an extra quote and
+            # appends ";;", so a normal DictReader sees the row as one field.
+            if line.startswith('"') and line.endswith('";;'):
+                line = line[1:-3]
+            elif line.endswith(";;"):
+                line = line[:-2]
+
+            line = line.replace('""', '"')
+            values = next(csv.reader([line]), [])
+            if len(values) < 2:
+                continue
+
+            inci_id = str(values[0]).strip()
+            name = str(values[1] if len(values) > 1 else "").strip()
+            if not name:
+                continue
+
+            rating = str(values[2] if len(values) > 2 else "").strip()
+            functions = str(values[3] if len(values) > 3 else "").strip()
+            description = str(values[4] if len(values) > 4 else "").strip()
+
+            key = _normalize_name(name)
+            if not key:
+                continue
+
+            knowledge[key] = {
+                "inci_id": inci_id,
+                "name": name,
+                "rating": rating,
+                "functions": functions,
+                "description": description,
+                "source": "incidecoder"
+            }
     except Exception as e:
         print(f"Error loading INCIDecoder ingredients: {e}")
     return knowledge
 
 
+def _load_incidecoder_product_ingredients() -> Dict[str, List[str]]:
+    """Load the relation table: ingredient_id → [product_ids].
+    
+    Returns a dict mapping inci_ingredient_id (string) → list of product_id (string).
+    """
+    if not os.path.exists(DATASET_INCIDECODER_PRODUCT_INGREDIENTS):
+        print(f"Warning: {DATASET_INCIDECODER_PRODUCT_INGREDIENTS} not found.")
+        return {}
+
+    relation: Dict[str, List[str]] = {}
+    try:
+        with open(
+            DATASET_INCIDECODER_PRODUCT_INGREDIENTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+            newline="",
+        ) as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                ing_id = str(row.get("ingredient_id") or "").strip()
+                prod_id = str(row.get("product_id") or "").strip()
+                if not ing_id or not prod_id:
+                    continue
+                if ing_id not in relation:
+                    relation[ing_id] = []
+                if prod_id not in relation[ing_id]:
+                    relation[ing_id].append(prod_id)
+    except Exception as e:
+        print(f"Error loading INCIDecoder product_ingredients: {e}")
+
+    return relation
+
+
+def _load_incidecoder_products_by_id() -> Dict[str, Dict[str, str]]:
+    """Load incidecoder_products.csv keyed by product id string.
+    
+    Returns {product_id: {name, brand, category, url, ingredients: [...]}}
+    """
+    if not os.path.exists(DATASET_INCIDECODER_PRODUCTS):
+        print(f"Warning: {DATASET_INCIDECODER_PRODUCTS} not found.")
+        return {}
+
+    products: Dict[str, Dict[str, str]] = {}
+    try:
+        with open(
+            DATASET_INCIDECODER_PRODUCTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+            newline="",
+        ) as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                pid = str(row.get("id") or "").strip()
+                product_name = str(row.get("product_name") or "").strip()
+                brand = str(row.get("brand") or "").strip()
+                if not pid or not product_name:
+                    continue
+
+                ingredients_raw = str(row.get("ingredient_raw") or "").strip()
+                ingredient_list = [
+                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
+                    for part in ingredients_raw.split(",")
+                    if part.strip()
+                ]
+
+                products[pid] = {
+                    "id": pid,
+                    "name": product_name,
+                    "brand": brand,
+                    "category": str(row.get("category") or "").strip(),
+                    "url": str(row.get("product_url") or "").strip(),
+                    "ingredients": [i for i in ingredient_list if i],
+                }
+    except Exception as e:
+        print(f"Error loading INCIDecoder products by id: {e}")
+
+    return products
+
+
 def _load_incidecoder_products_dataset() -> Dict[str, List[str]]:
+    """Legacy function: ingredient normalized name → [product display names].
+    
+    Kept for backward compatibility with the existing Qdrant payload field
+    'found_in_products'.
+    """
     if not os.path.exists(DATASET_INCIDECODER_PRODUCTS):
         print(f"Warning: {DATASET_INCIDECODER_PRODUCTS} not found.")
         return {}
@@ -244,6 +356,15 @@ def setup_qdrant():
     inci_ingredients = _load_incidecoder_ingredients_dataset()
     inci_products = _load_incidecoder_products_dataset()
 
+    # Load new relation datasets for product recommendation
+    print("Loading INCIDecoder product-ingredient relation table...")
+    inci_product_ingredients = _load_incidecoder_product_ingredients()  # ing_id → [prod_ids]
+    inci_products_by_id = _load_incidecoder_products_by_id()           # prod_id → {name,brand,...}
+
+    print(f"  Relation table entries: {sum(len(v) for v in inci_product_ingredients.values())} rows "
+          f"covering {len(inci_product_ingredients)} unique ingredients")
+    print(f"  Products loaded by ID: {len(inci_products_by_id)}")
+
     # Merge ingredients
     print("Merging dataset entries...")
     all_keys = set()
@@ -257,6 +378,7 @@ def setup_qdrant():
     for key in all_keys:
         merged = {
             "name": "",
+            "normalized_name": key,
             "description": "",
             "functions": "",
             "warnings": "",
@@ -266,7 +388,10 @@ def setup_qdrant():
             "bpom_warning": "",
             "rating": "",
             "found_in_products": [],
-            "sources": []
+            "sources": [],
+            # NEW: fields for semantic product recommendation
+            "inci_id": "",
+            "related_product_ids": [],
         }
 
         if key in inci_ingredients:
@@ -276,6 +401,8 @@ def setup_qdrant():
             merged["functions"] = data["functions"]
             merged["rating"] = data["rating"]
             merged["sources"].append("incidecoder")
+            # Store the INCI numeric ID for cross-referencing the relation table
+            merged["inci_id"] = data.get("inci_id", "")
 
         if key in descriptions:
             data = descriptions[key]
@@ -315,73 +442,92 @@ def setup_qdrant():
         if key in inci_products:
             merged["found_in_products"] = inci_products[key]
 
+        # NEW: populate related_product_ids from the relation table
+        inci_id = merged.get("inci_id", "")
+        if inci_id and inci_id in inci_product_ingredients:
+            product_ids = inci_product_ingredients[inci_id]
+            merged["related_product_ids"] = product_ids
+            # Augment found_in_products with names from the relation table (if not already populated)
+            if not merged["found_in_products"]:
+                for pid in product_ids[:5]:
+                    prod_info = inci_products_by_id.get(pid)
+                    if prod_info:
+                        display = f"{prod_info['brand']} - {prod_info['name']}" if prod_info.get("brand") else prod_info["name"]
+                        if display not in merged["found_in_products"]:
+                            merged["found_in_products"].append(display)
+
         merged_data_list.append(merged)
     
     print(f"Total merged ingredients: {len(merged_data_list)}")
 
-    print(f"Initializing Qdrant Client at {QDRANT_DATA_DIR}")
-    os.makedirs(QDRANT_DATA_DIR, exist_ok=True)
-    
-    client = QdrantClient(path=QDRANT_DATA_DIR)
-    
-    if client.collection_exists(COLLECTION_NAME):
-        print(f"Collection '{COLLECTION_NAME}' already exists. Deleting it to recreate...")
-        client.delete_collection(COLLECTION_NAME)
+    print(f"Connecting to Qdrant ({get_qdrant_mode()})...")
+    client = get_qdrant_client()
+    try:
+        if client.collection_exists(COLLECTION_NAME):
+            print(f"Collection '{COLLECTION_NAME}' already exists. Deleting it to recreate...")
+            client.delete_collection(COLLECTION_NAME)
 
-    print(f"Creating collection '{COLLECTION_NAME}'...")
-    client.create_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
-    )
-    
-    print("Preparing documents for vectorization via Gemini API...")
-    points = []
-    
-    for idx, item in enumerate(merged_data_list, start=1):
-        doc_text = f"Ingredient: {item['name']}\n"
-        if item.get('rating'):
-            doc_text += f"Rating: {item['rating']}\n"
-        if item.get('description'):
-            doc_text += f"Description: {_clip(item['description'], 300)}\n"
-        if item.get('functions'):
-            doc_text += f"Functions: {item['functions']}\n"
-        if item.get('harmful'):
-            doc_text += f"Status: HARMFUL (BPOM Banned)\n"
-        if item.get('found_in_products'):
-            products_str = ", ".join(item['found_in_products'])
-            doc_text += f"Found in products: {products_str}\n"
-
-        print(f"Generating embedding {idx}/{len(merged_data_list)}: {item['name'][:30].encode('ascii', 'ignore').decode('ascii')}")
-        try:
-            vector = get_embedding(doc_text)
-        except Exception as e:
-            print(f"Failed to embed {item['name']}: {e}")
-            continue
-
-        points.append(
-            PointStruct(
-                id=idx,
-                vector=vector,
-                payload=item
-            )
+        print(f"Creating collection '{COLLECTION_NAME}'...")
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
         )
         
-        # Batch insert to avoid huge memory/API limits
-        if len(points) >= 100:
+        print("Preparing documents for vectorization via Gemini API...")
+        points = []
+        
+        for idx, item in enumerate(merged_data_list, start=1):
+            doc_text = f"Ingredient: {item['name']}\n"
+            if item.get('rating'):
+                doc_text += f"Rating: {item['rating']}\n"
+            if item.get('description'):
+                doc_text += f"Description: {_clip(item['description'], 300)}\n"
+            if item.get('functions'):
+                doc_text += f"Functions: {item['functions']}\n"
+            if item.get('harmful'):
+                doc_text += f"Status: HARMFUL (BPOM Banned)\n"
+            if item.get('found_in_products'):
+                products_str = ", ".join(item['found_in_products'])
+                doc_text += f"Found in products: {products_str}\n"
+
+            print(f"Generating embedding {idx}/{len(merged_data_list)}: {item['name'][:30].encode('ascii', 'ignore').decode('ascii')}")
+            try:
+                vector = get_embedding(doc_text)
+            except Exception as e:
+                print(f"Failed to embed {item['name']}: {e}")
+                continue
+
+            points.append(
+                PointStruct(
+                    id=idx,
+                    vector=vector,
+                    payload=item
+                )
+            )
+            
+            # Batch insert to avoid huge memory/API limits
+            if len(points) >= 100:
+                client.upsert(
+                    collection_name=COLLECTION_NAME,
+                    points=points
+                )
+                print(f"Upserted {idx} points...")
+                points = []
+                
+        if points:
             client.upsert(
                 collection_name=COLLECTION_NAME,
                 points=points
             )
-            print(f"Upserted {idx} points...")
-            points = []
-            
-    if points:
-        client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=points
-        )
-    
-    print(f"Successfully ingested ingredients into Qdrant collection '{COLLECTION_NAME}'.")
+        
+        print(f"Successfully ingested ingredients into Qdrant collection '{COLLECTION_NAME}'.")
+    finally:
+        try:
+            client.close()
+            print("Qdrant client connection closed.")
+        except Exception as e:
+            print(f"Error closing Qdrant client: {e}")
+
 
 
 if __name__ == "__main__":

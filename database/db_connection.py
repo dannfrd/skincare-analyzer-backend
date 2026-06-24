@@ -175,6 +175,7 @@ class DatabaseConnection:
                         unknown_count,
                         ai_model,
                         ai_output,
+                        raw_result,
                         created_at
                     )
                     VALUES (
@@ -188,6 +189,7 @@ class DatabaseConnection:
                         :unknown_count,
                         :ai_model,
                         :ai_output,
+                        :raw_result,
                         NOW()
                     )
                     """
@@ -206,6 +208,8 @@ class DatabaseConnection:
                         or ai_analysis.get("text")
                         or recommendation_text
                     ),
+                    # Store full JSON result payload when available
+                    "raw_result": json.dumps(ai_result, ensure_ascii=False, default=str) if ai_result is not None else None,
                 })
                 analysis_id = analysis_insert.lastrowid
 
@@ -222,9 +226,10 @@ class DatabaseConnection:
 
     def _resolve_ingredient_ids(self, conn, matched_ingredients: List[Dict[str, Any]]) -> None:
         """
-        Ensures ALL ingredients (including unknown ones) have a database ID
-        by looking them up or inserting them into the ingredients table.
-        This makes every scanned ingredient individually trackable.
+        Resolve known ingredients and insert dataset-backed ingredients.
+
+        Unknown OCR text without an exact dataset match stays in the analysis
+        payload but is not promoted into the master ingredients table.
         """
         if not self._table_exists(conn, "ingredients"):
             return
@@ -246,16 +251,68 @@ class DatabaseConnection:
 
             # 1. Try to find existing row
             existing = conn.execute(
-                text("SELECT id FROM ingredients WHERE name = :name LIMIT 1"),
+                text(
+                    """
+                    SELECT id, description, `function`
+                    FROM ingredients
+                    WHERE name = :name
+                    LIMIT 1
+                    """
+                ),
                 {"name": name},
-            ).fetchone()
+            ).mappings().first()
 
             if existing:
-                ingredient["id"] = existing.id if hasattr(existing, "id") else existing[0]
+                ingredient["id"] = existing.get("id")
+
+                dataset_description = str(
+                    ingredient.get("dataset_description") or ""
+                ).strip()
+                dataset_functions = str(
+                    ingredient.get("dataset_functions") or ""
+                ).strip()
+                current_description = str(existing.get("description") or "").strip()
+                current_function = str(existing.get("function") or "").strip()
+
+                updates = {}
+                if dataset_description and (
+                    not current_description
+                    or current_description.lower()
+                    in {"unknown", "ingredient not found in database."}
+                ):
+                    updates["description"] = dataset_description
+
+                if dataset_functions and (
+                    not current_function or current_function.lower() == "unknown"
+                ):
+                    updates["function"] = dataset_functions
+
+                if updates:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE ingredients
+                            SET description = COALESCE(:description, description),
+                                `function` = COALESCE(:function, `function`)
+                            WHERE id = :id
+                            """
+                        ),
+                        {
+                            "id": ingredient["id"],
+                            "description": updates.get("description"),
+                            "function": updates.get("function"),
+                        },
+                    )
+
                 logger.debug(f"Resolved existing ingredient: {name} -> id={ingredient['id']}")
                 continue
 
-            # 2. Auto-insert (including unknown / unmatched ingredients from OCR)
+            status = str(ingredient.get("status") or "").strip().lower()
+            if status == "unknown" and not ingredient.get("found_in_dataset"):
+                logger.info("Skipped unknown OCR token from master data: %s", name)
+                continue
+
+            # 2. Auto-insert ingredients backed by DB matching or the dataset.
             desc = str(
                 ingredient.get("dataset_description") or ingredient.get("description") or ""
             ).strip()
@@ -264,7 +321,6 @@ class DatabaseConnection:
             ).strip() or "Unknown"
 
             # Determine risk level
-            status = str(ingredient.get("status") or "").strip().lower()
             if ingredient.get("dataset_harmful"):
                 risk_level = "high"
             elif status == "unknown":
@@ -614,6 +670,131 @@ class DatabaseConnection:
 
         return insert.lastrowid
 
+    # --- Notifications CRUD helpers ---
+    def create_notification(self, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str = "draft", scheduled_at: Optional[str] = None, sent_by: Optional[int] = None) -> Optional[int]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.begin() as conn:
+                insert = conn.execute(text(
+                    "INSERT INTO notifications (title, body, data, topic, tokens, status, scheduled_at, sent_by, created_at) VALUES (:title, :body, :data, :topic, :tokens, :status, :scheduled_at, :sent_by, NOW())"
+                ), {
+                    "title": title,
+                    "body": body,
+                    "data": json.dumps(data, ensure_ascii=False) if data is not None else None,
+                    "topic": topic,
+                    "tokens": json.dumps(tokens, ensure_ascii=False) if tokens is not None else None,
+                    "status": status,
+                    "scheduled_at": scheduled_at,
+                    "sent_by": sent_by,
+                })
+                return insert.lastrowid
+        except Exception as e:
+            logger.error(f"Error creating notification: {e}")
+            return None
+
+    def get_notifications(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        if not self.engine:
+            return []
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "notifications"):
+                    return []
+                query = text(
+                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, created_at FROM notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                )
+                rows = conn.execute(query, {"limit": limit, "offset": offset}).mappings().all()
+                results: List[Dict[str, Any]] = []
+                for row in rows:
+                    data_val = row.get("data")
+                    if isinstance(data_val, str):
+                        try:
+                            data_val = json.loads(data_val)
+                        except Exception:
+                            pass
+
+                    tokens_val = row.get("tokens")
+                    if isinstance(tokens_val, str):
+                        try:
+                            tokens_val = json.loads(tokens_val)
+                        except Exception:
+                            pass
+
+                    results.append({
+                        "id": row.get("id"),
+                        "title": row.get("title"),
+                        "body": row.get("body"),
+                        "data": data_val,
+                        "topic": row.get("topic"),
+                        "tokens": tokens_val,
+                        "status": row.get("status"),
+                        "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
+                        "sent_at": self._to_iso_datetime(row.get("sent_at")),
+                        "sent_by": row.get("sent_by"),
+                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                    })
+                return results
+        except Exception as e:
+            logger.error(f"Error fetching notifications: {e}")
+            return []
+
+    def get_notification_by_id(self, notification_id: int) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "notifications"):
+                    return None
+                row = conn.execute(text(
+                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, created_at FROM notifications WHERE id = :id LIMIT 1"
+                ), {"id": notification_id}).mappings().first()
+                if not row:
+                    return None
+
+                data_val = row.get("data")
+                if isinstance(data_val, str):
+                    try:
+                        data_val = json.loads(data_val)
+                    except Exception:
+                        pass
+
+                tokens_val = row.get("tokens")
+                if isinstance(tokens_val, str):
+                    try:
+                        tokens_val = json.loads(tokens_val)
+                    except Exception:
+                        pass
+
+                return {
+                    "id": row.get("id"),
+                    "title": row.get("title"),
+                    "body": row.get("body"),
+                    "data": data_val,
+                    "topic": row.get("topic"),
+                    "tokens": tokens_val,
+                    "status": row.get("status"),
+                    "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
+                    "sent_at": self._to_iso_datetime(row.get("sent_at")),
+                    "sent_by": row.get("sent_by"),
+                    "created_at": self._to_iso_datetime(row.get("created_at")),
+                }
+        except Exception as e:
+            logger.error(f"Error fetching notification by id: {e}")
+            return None
+
+    def mark_notification_sent(self, notification_id: int, sent_by: Optional[int] = None) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE notifications SET status = 'sent', sent_at = NOW(), sent_by = :sent_by WHERE id = :id"
+                ), {"id": notification_id, "sent_by": sent_by})
+                return True
+        except Exception as e:
+            logger.error(f"Error marking notification sent: {e}")
+            return False
+
     @staticmethod
     def _to_iso_datetime(value: Any) -> Optional[str]:
         return value.isoformat() if isinstance(value, datetime) else None
@@ -902,40 +1083,97 @@ class DatabaseConnection:
         try:
             with self.engine.connect() as conn:
                 if self._table_exists(conn, "analyses"):
-                    base_row = conn.execute(text(
-                        """
-                        SELECT
-                            a.id,
-                            a.scan_id,
-                            a.summary,
-                            a.recommendation,
-                            a.status,
-                            a.overall_score,
-                            a.classification,
-                            a.warnings_count,
-                            a.unknown_count,
-                            a.ai_model,
-                            a.ai_output,
-                            a.created_at,
-                            s.extracted_text,
-                            u.id AS user_id,
-                            u.name AS user_name,
-                            u.email AS user_email,
-                            p.id AS product_id,
-                            p.name AS product_name,
-                            p.brand AS product_brand,
-                            p.category AS product_category
-                        FROM analyses a
-                        LEFT JOIN scans s ON s.id = a.scan_id
-                        LEFT JOIN users u ON u.id = s.user_id
-                        LEFT JOIN products p ON p.id = s.product_id
-                        WHERE a.id = :analysis_id
-                        LIMIT 1
-                        """
-                    ), {"analysis_id": analysis_id}).mappings().first()
+                    # Build SELECT dynamically based on which columns exist in `analyses` to
+                    # avoid querying missing legacy columns (prevents OperationalError).
+                    cols = [
+                        "a.id",
+                        "a.scan_id",
+                        "a.summary",
+                        "a.recommendation",
+                    ]
+
+                    optional_cols = [
+                        "expert_analysis",
+                        "ai_analysis",
+                        "raw_result",
+                        "status",
+                        "overall_score",
+                        "classification",
+                        "warnings_count",
+                        "unknown_count",
+                        "ai_model",
+                        "ai_output",
+                        "created_at",
+                    ]
+
+                    for c in optional_cols:
+                        if self._column_exists(conn, "analyses", c):
+                            cols.append(f"a.{c}")
+
+                    # Always include joined context columns
+                    cols.extend([
+                        "s.extracted_text",
+                        "u.id AS user_id",
+                        "u.name AS user_name",
+                        "u.email AS user_email",
+                        "p.id AS product_id",
+                        "p.name AS product_name",
+                        "p.brand AS product_brand",
+                        "p.category AS product_category",
+                    ])
+
+                    join_str = ',\n    '.join(cols)
+                    sql = (
+                        "SELECT\n    " + join_str +
+                        "\nFROM analyses a\nLEFT JOIN scans s ON s.id = a.scan_id\nLEFT JOIN users u ON u.id = s.user_id\nLEFT JOIN products p ON p.id = s.product_id\nWHERE a.id = :analysis_id\nLIMIT 1"
+                    )
+
+                    base_row = conn.execute(text(sql), {"analysis_id": analysis_id}).mappings().first()
 
                     if not base_row:
+                        # Fallback: if legacy `analysis_results` table exists, try fetching from there
+                        if self._table_exists(conn, "analysis_results"):
+                            row = conn.execute(text(
+                                """
+                                SELECT id, raw_text, ai_analysis, created_at
+                                FROM analysis_results
+                                WHERE id = :analysis_id
+                                LIMIT 1
+                                """
+                            ), {"analysis_id": analysis_id}).mappings().first()
+
+                            if not row:
+                                return None
+
+                            ai_payload: Any = row.get("ai_analysis")
+                            if isinstance(ai_payload, str):
+                                try:
+                                    ai_payload = json.loads(ai_payload)
+                                except json.JSONDecodeError:
+                                    pass
+
+                            return {
+                                "id": row.get("id"),
+                                "raw_text": row.get("raw_text"),
+                                "ai_analysis": ai_payload,
+                                "created_at": self._to_iso_datetime(row.get("created_at")),
+                            }
                         return None
+
+                    # If a raw_result payload was stored, prefer returning it verbatim
+                    raw_payload = base_row.get("raw_result")
+                    if isinstance(raw_payload, str) and raw_payload.strip():
+                        try:
+                            parsed = json.loads(raw_payload)
+                        except Exception:
+                            parsed = raw_payload
+
+                        if isinstance(parsed, dict):
+                            # Ensure identifiers and timestamps are present for clients
+                            parsed.setdefault("analysis_id", base_row.get("id"))
+                            parsed.setdefault("id", base_row.get("id"))
+                            parsed.setdefault("created_at", self._to_iso_datetime(base_row.get("created_at")))
+                            return parsed
 
                     ingredient_rows = conn.execute(text(
                         """
@@ -1011,6 +1249,21 @@ class DatabaseConnection:
                     ]
                     warnings_count = base_row.get("warnings_count") or 0
 
+                    # Parse JSON text back to Dict
+                    expert_payload = base_row.get("expert_analysis")
+                    if isinstance(expert_payload, str):
+                        try:
+                            expert_payload = json.loads(expert_payload)
+                        except json.JSONDecodeError:
+                            pass
+
+                    ai_payload = base_row.get("ai_analysis")
+                    if isinstance(ai_payload, str):
+                        try:
+                            ai_payload = json.loads(ai_payload)
+                        except json.JSONDecodeError:
+                            pass
+
                     return {
                         "id": base_row.get("id"),
                         "scan_id": base_row.get("scan_id"),
@@ -1018,6 +1271,8 @@ class DatabaseConnection:
                         "summary": base_row.get("summary"),
                         "recommendation": base_row.get("recommendation"),
                         "status": base_row.get("status"),
+                        "expert_analysis": expert_payload,   # Kirim kembali ke Flutter
+                        "ai_analysis": ai_payload,           # Kirim kembali ke Flutter
                         "matched_ingredient_count": len(matched_ingredients),
                         "matched_ingredients": matched_ingredients,
                         "expert_analysis": {
@@ -1515,6 +1770,91 @@ class DatabaseConnection:
             logger.error(f"Error fetching products list: {e}")
             return []
 
+    # --- Product CRUD helpers for admin API ---
+    def get_product_by_id(self, product_id: int) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "products"):
+                    return None
+                row = conn.execute(text(
+                    "SELECT id, name, brand, category, barcode, created_at FROM products WHERE id = :id LIMIT 1"
+                ), {"id": product_id}).mappings().first()
+                if not row:
+                    return None
+                return {
+                    "id": row.get("id"),
+                    "name": row.get("name"),
+                    "brand": row.get("brand"),
+                    "category": row.get("category"),
+                    "barcode": row.get("barcode"),
+                    "created_at": self._to_iso_datetime(row.get("created_at")),
+                }
+        except Exception as e:
+            logger.error(f"Error fetching product by id: {e}")
+            return None
+
+    def create_product(self, name: str, brand: Optional[str], category: Optional[str], barcode: Optional[str]) -> Optional[int]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.begin() as conn:
+                insert = conn.execute(text(
+                    "INSERT INTO products (name, brand, category, barcode, created_at) VALUES (:name, :brand, :category, :barcode, NOW())"
+                ), {
+                    "name": name,
+                    "brand": brand,
+                    "category": category,
+                    "barcode": barcode,
+                })
+                return insert.lastrowid
+        except Exception as e:
+            logger.error(f"Error creating product: {e}")
+            return None
+
+    def update_product(self, product_id: int, name: Optional[str], brand: Optional[str], category: Optional[str], barcode: Optional[str]) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                # Build update dynamically
+                updates = []
+                params = {"id": product_id}
+                if name is not None:
+                    updates.append("name = :name")
+                    params["name"] = name
+                if brand is not None:
+                    updates.append("brand = :brand")
+                    params["brand"] = brand
+                if category is not None:
+                    updates.append("category = :category")
+                    params["category"] = category
+                if barcode is not None:
+                    updates.append("barcode = :barcode")
+                    params["barcode"] = barcode
+
+                if not updates:
+                    return True
+
+                sql = "UPDATE products SET " + ", ".join(updates) + " WHERE id = :id"
+                conn.execute(text(sql), params)
+                return True
+        except Exception as e:
+            logger.error(f"Error updating product: {e}")
+            return False
+
+    def delete_product(self, product_id: int) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text("DELETE FROM products WHERE id = :id"), {"id": product_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting product: {e}")
+            return False
+
     def get_ingredients(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Returns ingredient list with usage metrics."""
         if not self.engine:
@@ -1565,6 +1905,90 @@ class DatabaseConnection:
         except Exception as e:
             logger.error(f"Error fetching ingredients list: {e}")
             return []
+
+    # --- Ingredient CRUD helpers for admin API ---
+    def get_ingredient_by_id(self, ingredient_id: int) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "ingredients"):
+                    return None
+                row = conn.execute(text(
+                    "SELECT id, name, description, `function`, risk_level, created_at FROM ingredients WHERE id = :id LIMIT 1"
+                ), {"id": ingredient_id}).mappings().first()
+                if not row:
+                    return None
+                return {
+                    "id": row.get("id"),
+                    "name": row.get("name"),
+                    "description": row.get("description"),
+                    "function": row.get("function"),
+                    "risk_level": row.get("risk_level"),
+                    "created_at": self._to_iso_datetime(row.get("created_at")),
+                }
+        except Exception as e:
+            logger.error(f"Error fetching ingredient by id: {e}")
+            return None
+
+    def create_ingredient(self, name: str, description: Optional[str], function: Optional[str], risk_level: Optional[str]) -> Optional[int]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.begin() as conn:
+                insert = conn.execute(text(
+                    "INSERT INTO ingredients (name, description, `function`, risk_level, created_at) VALUES (:name, :description, :function, :risk_level, NOW())"
+                ), {
+                    "name": name,
+                    "description": description,
+                    "function": function,
+                    "risk_level": risk_level,
+                })
+                return insert.lastrowid
+        except Exception as e:
+            logger.error(f"Error creating ingredient: {e}")
+            return None
+
+    def update_ingredient(self, ingredient_id: int, name: Optional[str], description: Optional[str], function: Optional[str], risk_level: Optional[str]) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                updates = []
+                params = {"id": ingredient_id}
+                if name is not None:
+                    updates.append("name = :name")
+                    params["name"] = name
+                if description is not None:
+                    updates.append("description = :description")
+                    params["description"] = description
+                if function is not None:
+                    updates.append("`function` = :function")
+                    params["function"] = function
+                if risk_level is not None:
+                    updates.append("risk_level = :risk_level")
+                    params["risk_level"] = risk_level
+
+                if not updates:
+                    return True
+
+                sql = "UPDATE ingredients SET " + ", ".join(updates) + " WHERE id = :id"
+                conn.execute(text(sql), params)
+                return True
+        except Exception as e:
+            logger.error(f"Error updating ingredient: {e}")
+            return False
+
+    def delete_ingredient(self, ingredient_id: int) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text("DELETE FROM ingredients WHERE id = :id"), {"id": ingredient_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting ingredient: {e}")
+            return False
 
     def get_user_histories(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Returns user history rows with analysis info."""

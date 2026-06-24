@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import os
@@ -23,7 +24,7 @@ from modules.expert_system import run_expert_system
 from modules.rag_context import get_ingredient_simple_description
 from database.db_connection import get_db_connection
 from modules.preprocessing import preprocess_image
-from modules.ocr import extract_text_from_image
+from modules.ocr import extract_text_from_image, extract_text_from_image_path
 from modules.auth_api import router as auth_router
 from sqlalchemy import text
 
@@ -40,8 +41,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    print("\n" + "="*50)
+    print("      WARMING UP MODELS (PRE-LOADING AI)      ")
+    print("="*50)
+    try:
+        from modules.embedding_utils import _get_model
+        print("Pre-loading SentenceTransformer (embeddings)...")
+        _get_model()
+    except Exception as e:
+        print(f"Error pre-loading SentenceTransformer: {e}")
+
+    engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
+    if engine == "paddleocr":
+        try:
+            from modules.ocr import PaddleOCRProcessor
+            print("Pre-loading PaddleOCR engine...")
+            PaddleOCRProcessor.get_instance()
+        except Exception as e:
+            print(f"Error pre-loading PaddleOCR: {e}")
+    else:
+        print("Tesseract OCR murni aktif (tidak perlu pre-load model di memori).")
+    print("="*50 + "\n")
+
+
 # Make sure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
+os.makedirs("uploads/profile_pictures", exist_ok=True)
+
+# Serve uploaded files (profile pictures, temp uploads)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 app.include_router(auth_router)
@@ -154,6 +184,134 @@ def save_user_history(request_data: SaveHistoryRequest, request: Request, db=Dep
         "analysis_id": request_data.analysis_id,
     }
 
+
+@app.post("/profile/upload")
+async def upload_profile_picture(request: Request, file: UploadFile = File(...), db=Depends(get_db_connection)):
+    """Upload profile picture file and save URL to user's `profile_picture` column."""
+    user_id = _resolve_user_id_from_request(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{file.filename}"
+        save_path = os.path.join("uploads/profile_pictures", filename)
+        with open(save_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        # Build absolute URL so frontend can load it directly
+        base = str(request.base_url).rstrip("/")
+        profile_url = f"{base}/uploads/profile_pictures/{filename}"
+
+        with db.engine.begin() as conn:
+            conn.execute(text(
+                """
+                UPDATE users
+                SET profile_picture = :profile_picture
+                WHERE id = :user_id
+                """
+            ), {
+                "profile_picture": profile_url,
+                "user_id": user_id,
+            })
+
+        return {"profile_picture": profile_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    profile_picture: Optional[str] = None
+    password: Optional[str] = None
+
+
+@app.post("/profile/update")
+def update_profile(request_data: UpdateProfileRequest, request: Request, db=Depends(get_db_connection)):
+    """Update user's profile fields: name, email, profile_picture, password."""
+    user_id = _resolve_user_id_from_request(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        base = str(request.base_url).rstrip("/")
+
+        # Normalize profile_picture input: if frontend sent a relative path, convert to absolute
+        incoming_pp = (request_data.profile_picture or "").strip()
+        if incoming_pp and incoming_pp.startswith("/uploads"):
+            incoming_pp = f"{base}{incoming_pp}"
+
+        with db.engine.begin() as conn:
+            # Basic update using COALESCE/NULLIF to keep existing values when empty
+            conn.execute(text(
+                """
+                UPDATE users
+                SET
+                    name = COALESCE(NULLIF(:name, ''), name),
+                    email = COALESCE(NULLIF(:email, ''), email),
+                    profile_picture = COALESCE(NULLIF(:profile_picture, ''), profile_picture),
+                    password = COALESCE(NULLIF(:password, ''), password)
+                WHERE id = :user_id
+                """
+            ), {
+                "name": request_data.name or "",
+                "email": request_data.email or "",
+                "profile_picture": incoming_pp or "",
+                "password": request_data.password or "",
+                "user_id": user_id,
+            })
+
+            row = conn.execute(text("SELECT id, name, email, profile_picture, created_at FROM users WHERE id = :user_id"), {"user_id": user_id}).mappings().first()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Ensure profile_picture returned is absolute URL
+        pp = row.get("profile_picture")
+        if pp and not pp.startswith("http"):
+            pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+
+        return {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "email": row.get("email"),
+            "profile_picture": pp,
+            "created_at": row.get("created_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/profile/me")
+def get_my_profile(request: Request, db=Depends(get_db_connection)):
+    """Return current authenticated user's profile from DB for debugging/verification."""
+    user_id = _resolve_user_id_from_request(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        base = str(request.base_url).rstrip("/")
+        with db.engine.connect() as conn:
+            row = conn.execute(text("SELECT id, name, email, profile_picture, created_at FROM users WHERE id = :user_id"), {"user_id": user_id}).mappings().first()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        pp = row.get("profile_picture")
+        if pp and not pp.startswith("http"):
+            pp = f"{base}{pp}" if pp.startswith("/") else f"{base}/{pp}"
+
+        return {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "email": row.get("email"),
+            "profile_picture": pp,
+            "created_at": row.get("created_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # model request dari Flutter
 class IngredientRequest(BaseModel):
     text: str
@@ -252,6 +410,11 @@ def root():
 @app.post("/analyze")
 def analyze_ingredients(data: IngredientRequest, request: Request):
     raw_text = data.text
+    print("\n" + "="*50)
+    print("      TEKS OCR MENTAH DITERIMA DARI APLIKASI      ")
+    print("="*50)
+    print(raw_text)
+    print("="*50 + "\n")
     db = get_db_connection()
     user_id = _resolve_user_id_from_request(request, db)
     return process_text_analysis(
@@ -292,9 +455,8 @@ async def analyze_image(
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        # 1. OCR Preprocessing and Extraction
-        processed_image = preprocess_image(temp_path)
-        extracted_text = extract_text_from_image(processed_image)
+        # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
+        extracted_text = extract_text_from_image_path(temp_path)
         
         # Cleanup temp file
         if os.path.exists(temp_path):
@@ -445,6 +607,53 @@ def process_text_analysis(
     return result_data
 
 
+# ─── Product Recommendations (INCIDecoder Dataset) ───────────────────────────
+# Delegates to modules/product_recommender.py which implements:
+#   - Strategy 1: Qdrant semantic similarity search
+#   - Strategy 2: String-overlap fallback
+#   - 'auto' mode: semantic first, fallback to overlap if < 3 results
+
+from modules.product_recommender import get_recommendations as _recommender_get
+from modules.product_recommender import set_ingesting as _set_ingesting
+from modules.fcm_notification import send_notification
+
+
+@app.get("/recommendations")
+def get_recommendations(
+    ingredients: str = Query(..., description="Comma-separated ingredient names from scan result"),
+    limit: int = Query(default=8, ge=1, le=20),
+    mode: str = Query(
+        default="auto",
+        description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
+    ),
+    category: Optional[str] = Query(default=None, description="Category of the scanned product"),
+):
+    """
+    Return top-N similar products from the INCIDecoder dataset.
+
+    Strategy options (mode param):
+    - 'auto'     : Qdrant semantic search first, falls back to string-overlap
+                   when fewer than 3 semantic results are found.
+    - 'semantic' : Pure Qdrant vector similarity (requires Qdrant data to be
+                   set up via qdrant_setup.py).
+    - 'overlap'  : Classic substring-overlap (fast, no Qdrant required).
+
+    Response fields per product:
+      name, brand, category_tags, url, similarity_pct, matched_ingredients,
+      match_reason (e.g. "Fungsi serupa: moisturizer, humectant")
+    """
+    ingredient_names = [i.strip() for i in ingredients.split(",") if i.strip()]
+    if not ingredient_names:
+        return {"recommendations": [], "mode_used": mode}
+
+    valid_modes = {"auto", "semantic", "overlap"}
+    if mode not in valid_modes:
+        mode = "auto"
+
+    result = _recommender_get(ingredient_names, limit=limit, mode=mode, category=category)
+    return {"recommendations": result, "mode_used": mode}
+
+
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
     total_identified = expert_report.get("total_ingredients_identified", 0)
     unknown_count = expert_report.get("total_unknown", 0)
@@ -461,10 +670,142 @@ def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> s
     return "Secara umum formula cukup aman, tetap perhatikan kecocokan dengan jenis kulit Anda."
 
 
-def require_monitoring_api_key(x_api_key: str | None = Header(default=None)):
-    """Simple API key guard for monitoring endpoints."""
-    if API_MONITORING_KEY and x_api_key != API_MONITORING_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+def require_monitoring_access(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """Allow monitoring API key or a JWT issued to an admin account."""
+    if API_MONITORING_KEY and x_api_key == API_MONITORING_KEY:
+        return
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if str(payload.get("role") or "").lower() == "admin":
+                return
+        except JWTError:
+            pass
+
+    raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+@app.post("/admin/reingest")
+def admin_reingest(_: None = Depends(require_monitoring_access)):
+    """
+    Trigger re-ingestion of all datasets into Qdrant dari dalam backend.
+    Berjalan dalam proses yang SAMA sehingga tidak ada konflik file lock.
+    Selama proses ingest, /recommendations fallback ke string-overlap otomatis.
+
+    Cara panggil:
+        curl -X POST http://VPS_IP:8000/admin/reingest \\
+             -H "X-Api-Key: YOUR_MONITORING_KEY"
+    """
+    import threading
+    from modules.qdrant_setup import setup_qdrant
+
+    def _run_ingest():
+        _set_ingesting(True)
+        try:
+            print("[reingest] Starting Qdrant re-ingestion...")
+            setup_qdrant()
+            print("[reingest] Done.")
+        except Exception as e:
+            print(f"[reingest] ERROR: {e}")
+        finally:
+            _set_ingesting(False)
+
+    t = threading.Thread(target=_run_ingest, daemon=True, name="qdrant-reingest")
+    t.start()
+
+    return {
+        "status": "started",
+        "message": (
+            "Re-ingestion berjalan di background. "
+            "Selama proses, /recommendations menggunakan string-overlap fallback. "
+            "Proses selesai dalam beberapa menit."
+        ),
+    }
+
+
+# --- Admin Notification management ---
+class NotificationCreateRequest(BaseModel):
+    title: str
+    body: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+    topic: Optional[str] = None
+    tokens: Optional[List[str]] = None
+    scheduled_at: Optional[datetime] = None
+    send_now: Optional[bool] = False
+
+
+@app.post('/admin/notifications', dependencies=[Depends(require_monitoring_access)])
+def admin_create_notification(payload: NotificationCreateRequest, request: Request, db=Depends(get_db_connection)):
+    # store notification
+    scheduled_iso = payload.scheduled_at.isoformat() if payload.scheduled_at else None
+    sent_by = _resolve_user_id_from_request(request, db)
+    nid = db.create_notification(payload.title.strip(), (payload.body or '').strip() or None, payload.data or None, (payload.topic or '').strip() or None, payload.tokens or None, status=('scheduled' if payload.scheduled_at else 'draft'), scheduled_at=scheduled_iso, sent_by=None)
+    if not nid:
+        raise HTTPException(status_code=500, detail='Failed to create notification')
+
+    result = {"id": nid}
+
+    if payload.send_now:
+        try:
+            resp = send_notification(payload.title, payload.body or '', payload.data or {}, topic=payload.topic, tokens=payload.tokens)
+            db.mark_notification_sent(nid, sent_by=sent_by)
+            result["sent"] = True
+            result["response"] = resp
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Send failed: {e}")
+
+    return result
+
+
+@app.get('/admin/notifications', dependencies=[Depends(require_monitoring_access)])
+def admin_list_notifications(limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0), db=Depends(get_db_connection)):
+    return {"items": db.get_notifications(limit=limit, offset=offset)}
+
+
+@app.get('/admin/notifications/{notification_id}', dependencies=[Depends(require_monitoring_access)])
+def admin_get_notification(notification_id: int, db=Depends(get_db_connection)):
+    note = db.get_notification_by_id(notification_id)
+    if not note:
+        raise HTTPException(status_code=404, detail='Notification not found')
+    return note
+
+
+@app.post('/admin/notifications/{notification_id}/send', dependencies=[Depends(require_monitoring_access)])
+def admin_send_stored_notification(notification_id: int, request: Request, db=Depends(get_db_connection)):
+    note = db.get_notification_by_id(notification_id)
+    if not note:
+        raise HTTPException(status_code=404, detail='Notification not found')
+
+    try:
+        resp = send_notification(note.get('title'), note.get('body') or '', note.get('data') or {}, topic=note.get('topic'), tokens=note.get('tokens'))
+        sent_by = _resolve_user_id_from_request(request, db)
+        db.mark_notification_sent(notification_id, sent_by=sent_by)
+        return {"status": "sent", "response": resp}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
+
+
+@app.get('/admin/debug-headers')
+def admin_debug_headers(request: Request):
+    """Temporary debug endpoint: returns request headers and decoded JWT payload (if any).
+    Use only for local/debugging; remove in production.
+    """
+    headers = {k: v for k, v in request.headers.items()}
+    auth = headers.get('authorization') or headers.get('Authorization')
+    jwt_payload = None
+    if auth and isinstance(auth, str) and auth.lower().startswith('bearer '):
+        token = auth.split(' ', 1)[1]
+        try:
+            jwt_payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        except Exception as e:
+            jwt_payload = {"error": str(e)}
+
+    return {"headers": headers, "jwt_payload": jwt_payload}
 
 
 def _current_timestamp() -> datetime:
@@ -479,7 +820,7 @@ def _service_status(healthy: bool, detail: str = "") -> Dict[str, Any]:
 
 
 @app.get("/health", response_model=HealthResponse)
-def health_status(_: None = Depends(require_monitoring_api_key)):
+def health_status(_: None = Depends(require_monitoring_access)):
     db = get_db_connection()
     db_status = db.ping()
     ocr_ready = shutil.which("tesseract") is not None
@@ -497,7 +838,7 @@ def health_status(_: None = Depends(require_monitoring_api_key)):
 
 
 @app.get("/metrics/summary", response_model=MetricsSummaryResponse)
-def metrics_summary(_: None = Depends(require_monitoring_api_key)):
+def metrics_summary(_: None = Depends(require_monitoring_access)):
     db = get_db_connection()
     analysis = db.get_analysis_summary()
     ingredients = db.get_ingredient_summary()
@@ -513,7 +854,7 @@ def metrics_summary(_: None = Depends(require_monitoring_api_key)):
 @app.get("/metrics/recent", response_model=List[RecentAnalysisResponse])
 def metrics_recent(
     limit: int = Query(default=15, ge=1, le=100),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     records = db.get_recent_analysis_results(limit=limit)
@@ -524,7 +865,7 @@ def metrics_recent(
 @app.get("/metrics/users", response_model=List[UserSummaryResponse])
 def metrics_users(
     limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     return db.get_users(limit=limit)
@@ -533,7 +874,7 @@ def metrics_users(
 @app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
 def metrics_analyses(
     limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     return db.get_analyses(limit=limit)
@@ -542,7 +883,7 @@ def metrics_analyses(
 @app.get("/metrics/analysis-details", response_model=List[AnalysisDetailSummaryResponse])
 def metrics_analysis_details(
     limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     return db.get_analysis_details(limit=limit)
@@ -551,16 +892,113 @@ def metrics_analysis_details(
 @app.get("/metrics/products", response_model=List[ProductSummaryResponse])
 def metrics_products(
     limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     return db.get_products(limit=limit)
 
 
+# --- Admin Product CRUD endpoints ---
+class ProductCreateRequest(BaseModel):
+    name: str
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    barcode: Optional[str] = None
+
+
+class ProductUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    barcode: Optional[str] = None
+
+
+@app.post("/admin/products", dependencies=[Depends(require_monitoring_access)])
+def admin_create_product(payload: ProductCreateRequest, db=Depends(get_db_connection)):
+    product_id = db.create_product(payload.name.strip(), (payload.brand or '').strip() or None, (payload.category or '').strip() or None, (payload.barcode or '').strip() or None)
+    if not product_id:
+        raise HTTPException(status_code=500, detail="Failed to create product")
+    return {"id": product_id}
+
+
+@app.get("/admin/products/{product_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_get_product(product_id: int, db=Depends(get_db_connection)):
+    product = db.get_product_by_id(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return product
+
+
+@app.put("/admin/products/{product_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_update_product(product_id: int, payload: ProductUpdateRequest, db=Depends(get_db_connection)):
+    ok = db.update_product(product_id, payload.name, payload.brand, payload.category, payload.barcode)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update product")
+    return {"status": "ok"}
+
+
+@app.delete("/admin/products/{product_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_delete_product(product_id: int, db=Depends(get_db_connection)):
+    ok = db.delete_product(product_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete product")
+    return {"status": "deleted"}
+
+
+# --- Admin Ingredient CRUD endpoints ---
+class IngredientCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    function: Optional[str] = None
+    risk_level: Optional[str] = None
+
+
+class IngredientUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    function: Optional[str] = None
+    risk_level: Optional[str] = None
+
+
+@app.post("/admin/ingredients", dependencies=[Depends(require_monitoring_access)])
+def admin_create_ingredient(payload: IngredientCreateRequest, db=Depends(get_db_connection)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Ingredient name is required")
+    ing_id = db.create_ingredient(name, (payload.description or '').strip() or None, (payload.function or '').strip() or None, (payload.risk_level or '').strip() or None)
+    if not ing_id:
+        raise HTTPException(status_code=500, detail="Failed to create ingredient")
+    return {"id": ing_id}
+
+
+@app.get("/admin/ingredients/{ingredient_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_get_ingredient(ingredient_id: int, db=Depends(get_db_connection)):
+    ing = db.get_ingredient_by_id(ingredient_id)
+    if not ing:
+        raise HTTPException(status_code=404, detail="Ingredient not found")
+    return ing
+
+
+@app.put("/admin/ingredients/{ingredient_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_update_ingredient(ingredient_id: int, payload: IngredientUpdateRequest, db=Depends(get_db_connection)):
+    ok = db.update_ingredient(ingredient_id, payload.name, payload.description, payload.function, payload.risk_level)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update ingredient")
+    return {"status": "ok"}
+
+
+@app.delete("/admin/ingredients/{ingredient_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_delete_ingredient(ingredient_id: int, db=Depends(get_db_connection)):
+    ok = db.delete_ingredient(ingredient_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete ingredient")
+    return {"status": "deleted"}
+
+
 @app.get("/metrics/ingredients", response_model=List[IngredientSummaryResponse])
 def metrics_ingredients(
     limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     return db.get_ingredients(limit=limit)
@@ -569,13 +1007,12 @@ def metrics_ingredients(
 @app.get("/metrics/user-histories", response_model=List[UserHistorySummaryResponse])
 def metrics_user_histories(
     limit: int = Query(default=200, ge=1, le=500),
-    _: None = Depends(require_monitoring_api_key),
+    _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
     return db.get_user_histories(limit=limit)
 
 @app.get("/history")
-
 def get_user_history(request: Request, db=Depends(get_db_connection)):
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.lower().startswith("bearer "):
@@ -586,8 +1023,8 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         user_email = payload.get("sub")
         if not user_email:
             raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
 
     with db.engine.connect() as conn:
         user = conn.execute(
@@ -596,72 +1033,35 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
         ).fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-
         user_id = user.id if hasattr(user, 'id') else user[0]
 
-        # History diambil dari user_histories karena tombol "Simpan Hasil" menyimpan analysis_id ke tabel ini.
-        results = conn.execute(
+        # QUERY DIPERBARUI: Melakukan JOIN agar data Product dan Analysis ikut terambil
+        histories = conn.execute(
             text("""
-                SELECT
+                SELECT 
                     uh.id AS history_id,
                     uh.viewed_at,
                     a.id AS analysis_id,
                     a.summary,
                     a.recommendation,
                     a.status,
-                    a.created_at AS analysis_created_at,
-                    s.id AS scan_id,
-                    p.id AS product_id,
+                    a.created_at,
                     p.name AS product_name,
                     p.brand AS product_brand,
-                    GROUP_CONCAT(DISTINCT i.risk_level ORDER BY i.risk_level SEPARATOR ',') AS risk_levels
+                    p.category AS product_category
                 FROM user_histories uh
-                INNER JOIN analyses a ON a.id = uh.analysis_id
-                LEFT JOIN scans s ON s.id = a.scan_id
-                LEFT JOIN products p ON p.id = s.product_id
-                LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                JOIN analyses a ON uh.analysis_id = a.id
+                JOIN scans s ON a.scan_id = s.id
+                LEFT JOIN products p ON s.product_id = p.id
                 WHERE uh.user_id = :user_id
-                GROUP BY
-                    uh.id,
-                    uh.viewed_at,
-                    a.id,
-                    a.summary,
-                    a.recommendation,
-                    a.status,
-                    a.created_at,
-                    s.id,
-                    p.id,
-                    p.name,
-                    p.brand
-                ORDER BY COALESCE(uh.viewed_at, a.created_at) DESC
+                ORDER BY uh.viewed_at DESC
             """),
             {"user_id": user_id}
-        ).mappings().all()
-
-        payload: List[Dict[str, Any]] = []
-        for row in results:
-            created_at = row.get("viewed_at") or row.get("analysis_created_at")
-            risk_level = _resolve_history_risk_level(row.get("risk_levels"))
-
-            payload.append({
-                "id": row.get("history_id"),
-                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
-                "analysis_id": row.get("analysis_id"),
-                "product": {
-                    "id": row.get("product_id"),
-                    "name": row.get("product_name") or f"Analysis #{row.get('analysis_id')}",
-                    "brand": row.get("product_brand") or "No Brand",
-                },
-                "analyses": [
-                    {
-                        "id": row.get("analysis_id"),
-                        "summary": row.get("summary"),
-                        "recommendation": row.get("recommendation"),
-                        "status": row.get("status"),
-                        "risk_level": risk_level,
-                    }
-                ],
-            })
-
-        return payload
+        ).fetchall()
+        
+        # Convert SQLAlchemy RowProxy/Row to dict
+        result = []
+        for row in histories:
+            result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
+            
+        return {"items": result}

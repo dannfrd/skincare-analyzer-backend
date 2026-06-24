@@ -28,3 +28,18 @@ def get_embedding(text: str) -> List[float]:
         print(f"Error generating embedding locally: {e}")
         # fallback to zero vector to prevent hard crash
         return [0.0] * 384
+
+def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
+    """Generate vector embeddings in batch using a local SentenceTransformer model."""
+    if not texts:
+        return []
+    try:
+        model = _get_model()
+        # Encode texts to vectors and convert to list of lists of floats
+        vectors = model.encode(texts).tolist()
+        return vectors
+    except Exception as e:
+        print(f"Error generating batch embeddings locally: {e}")
+        # fallback to zero vectors to prevent hard crash
+        return [[0.0] * 384 for _ in texts]
+

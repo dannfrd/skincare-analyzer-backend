@@ -140,7 +140,7 @@ Build Comprehensive Prompt with Context
     ↓
 Google Gemini AI Analysis
     ├─ Model: gemini-2.5-flash
-    ├─ Fallback: gemini-2.0-flash, gemini-1.5-flash
+    ├─ Fallback: gemini-2.5-flash-lite, gemini-3.1-flash-lite, gemini-3.5-flash
     └─ Context-Grounded Response (3 sources)
     ↓
 Expert System Scoring
