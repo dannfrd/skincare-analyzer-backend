@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import os
+import json
 from jose import jwt, JWTError
 from dotenv import load_dotenv
 
@@ -24,6 +25,7 @@ import concurrent.futures
 from modules.expert_system import run_expert_system
 from modules.rag_context import get_ingredient_simple_description
 from database.db_connection import get_db_connection
+from modules.fcm_notification import send_notification
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image, extract_text_from_image_path
 from modules.auth_api import router as auth_router
@@ -931,6 +933,297 @@ def metrics_user_histories(
 ):
     db = get_db_connection()
     return db.get_user_histories(limit=limit)
+
+
+# --- Admin Notifications CRUD endpoints ---
+class NotificationCreateRequest(BaseModel):
+    title: str
+    body: Optional[str] = None
+    # Accept either an object/dict or a JSON string from the frontend
+    data: Optional[object] = None
+    topic: Optional[str] = None
+    # Accept either a list of tokens or a JSON string
+    tokens: Optional[object] = None
+    status: Optional[str] = "draft"
+    scheduled_at: Optional[str] = None
+
+
+@app.get("/admin/notifications", dependencies=[Depends(require_monitoring_access)])
+def admin_list_notifications(limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0), db=Depends(get_db_connection)):
+    items = db.get_notifications(limit=limit, offset=offset)
+    return {"items": items}
+
+
+@app.get("/admin/notifications/{notification_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_get_notification(notification_id: int, db=Depends(get_db_connection)):
+    n = db.get_notification_by_id(notification_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return n
+
+
+@app.post("/admin/notifications", dependencies=[Depends(require_monitoring_access)])
+def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
+    # Accept raw JSON body (frontend may send stringified fields). Normalize below.
+    try:
+        print(f"[admin_create_notification] raw payload={payload}")
+    except Exception:
+        print("[admin_create_notification] raw payload=<unserializable>")
+
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    body = payload.get("body")
+    if isinstance(body, str):
+        body = body.strip() or None
+
+    data_field = payload.get("data")
+    # allow stringified JSON
+    if isinstance(data_field, str):
+        try:
+            data_field = json.loads(data_field)
+        except Exception:
+            # keep as raw string
+            pass
+
+    topic = payload.get("topic")
+    if isinstance(topic, str):
+        topic = topic.strip() or None
+
+    tokens_field = payload.get("tokens")
+    if isinstance(tokens_field, str):
+        try:
+            tokens_field = json.loads(tokens_field)
+        except Exception:
+            # attempt simple split
+            try:
+                tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
+            except Exception:
+                tokens_field = None
+
+    status = payload.get("status") or "draft"
+    scheduled_at = payload.get("scheduled_at")
+    send_now = bool(payload.get("send_now"))
+
+    # If send_now is true, default initial status to 'draft' before triggering FCM
+    initial_status = "draft" if send_now else status
+
+    nid = db.create_notification(
+        title=title,
+        body=body,
+        data=data_field,
+        topic=topic,
+        tokens=tokens_field,
+        status=initial_status,
+        scheduled_at=scheduled_at,
+    )
+
+    if not nid:
+        raise HTTPException(status_code=500, detail="Failed to create notification")
+
+    sent_success = False
+    fcm_response = None
+    if send_now:
+        fcm_data = {}
+        if data_field and isinstance(data_field, dict):
+            for k, v in data_field.items():
+                if v is not None:
+                    fcm_data[str(k)] = str(v)
+        try:
+            fcm_response = send_notification(
+                title=title,
+                body=body or "",
+                data=fcm_data,
+                topic=topic,
+                tokens=tokens_field
+            )
+            db.mark_notification_sent(nid)
+            sent_success = True
+        except Exception as e:
+            print(f"Error sending immediate notification for id {nid}: {e}")
+            db.mark_notification_failed(nid)
+            raise HTTPException(status_code=500, detail=f"Notification created (ID: {nid}), but failed to send: {str(e)}")
+
+        return {"id": nid, "sent": sent_success, "response": fcm_response}
+
+    return {"id": nid}
+
+
+@app.post("/admin/notifications/{notification_id}/send", dependencies=[Depends(require_monitoring_access)])
+def admin_send_notification(notification_id: int, db=Depends(get_db_connection)):
+    n = db.get_notification_by_id(notification_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    title = n.get("title")
+    body = n.get("body") or ""
+    data = n.get("data")
+    topic = n.get("topic")
+    tokens = n.get("tokens")
+
+    fcm_data = {}
+    if data and isinstance(data, dict):
+        for k, v in data.items():
+            if v is not None:
+                fcm_data[str(k)] = str(v)
+
+    try:
+        response = send_notification(
+            title=title,
+            body=body,
+            data=fcm_data,
+            topic=topic,
+            tokens=tokens
+        )
+        db.mark_notification_sent(notification_id)
+        return {"status": "sent", "response": response}
+    except Exception as e:
+        print(f"FCM Notification sending failed for id {notification_id}: {e}")
+        db.mark_notification_failed(notification_id)
+        raise HTTPException(status_code=500, detail=f"Failed to send notification: {str(e)}")
+
+
+@app.post("/admin/notifications/{notification_id}/mark-sent", dependencies=[Depends(require_monitoring_access)])
+def admin_mark_notification_sent(notification_id: int, db=Depends(get_db_connection)):
+    ok = db.mark_notification_sent(notification_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to mark notification as sent")
+    return {"status": "sent"}
+
+
+@app.put("/admin/notifications/{notification_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_update_notification(notification_id: int, payload: dict, db=Depends(get_db_connection)):
+    n = db.get_notification_by_id(notification_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    body = payload.get("body")
+    if isinstance(body, str):
+        body = body.strip() or None
+
+    data_field = payload.get("data")
+    if isinstance(data_field, str):
+        try:
+            data_field = json.loads(data_field)
+        except Exception:
+            pass
+
+    topic = payload.get("topic")
+    if isinstance(topic, str):
+        topic = topic.strip() or None
+
+    tokens_field = payload.get("tokens")
+    if isinstance(tokens_field, str):
+        try:
+            tokens_field = json.loads(tokens_field)
+        except Exception:
+            try:
+                tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
+            except Exception:
+                tokens_field = None
+
+    status = payload.get("status") or n.get("status") or "draft"
+    scheduled_at = payload.get("scheduled_at")
+    send_now = bool(payload.get("send_now"))
+
+    if send_now:
+        status = "draft"
+
+    ok = db.update_notification(
+        notification_id=notification_id,
+        title=title,
+        body=body,
+        data=data_field,
+        topic=topic,
+        tokens=tokens_field,
+        status=status,
+        scheduled_at=scheduled_at,
+    )
+
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update notification")
+
+    sent_success = False
+    fcm_response = None
+    if send_now:
+        fcm_data = {}
+        if data_field and isinstance(data_field, dict):
+            for k, v in data_field.items():
+                if v is not None:
+                    fcm_data[str(k)] = str(v)
+        try:
+            fcm_response = send_notification(
+                title=title,
+                body=body or "",
+                data=fcm_data,
+                topic=topic,
+                tokens=tokens_field
+            )
+            db.mark_notification_sent(notification_id)
+            sent_success = True
+        except Exception as e:
+            print(f"Error sending updated notification for id {notification_id}: {e}")
+            db.mark_notification_failed(notification_id)
+            raise HTTPException(status_code=500, detail=f"Notification updated, but failed to send: {str(e)}")
+
+        return {"id": notification_id, "sent": sent_success, "response": fcm_response}
+
+    return {"id": notification_id}
+
+
+@app.delete("/admin/notifications/{notification_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_delete_notification(notification_id: int, db=Depends(get_db_connection)):
+    n = db.get_notification_by_id(notification_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    ok = db.delete_notification(notification_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete notification")
+    return {"status": "deleted"}
+
+
+# --- API compatibility aliases for frontend proxy prefix `/api/dermify` ---
+@app.get("/api/dermify/admin/notifications", dependencies=[Depends(require_monitoring_access)])
+def alias_list_notifications(limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0), db=Depends(get_db_connection)):
+    return {"items": db.get_notifications(limit=limit, offset=offset)}
+
+
+@app.get("/api/dermify/admin/notifications/{notification_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_get_notification(notification_id: int, db=Depends(get_db_connection)):
+    n = db.get_notification_by_id(notification_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return n
+
+
+@app.post("/api/dermify/admin/notifications", dependencies=[Depends(require_monitoring_access)])
+def alias_create_notification(payload: dict, db=Depends(get_db_connection)):
+    return admin_create_notification(payload, db)
+
+
+@app.post("/api/dermify/admin/notifications/{notification_id}/send", dependencies=[Depends(require_monitoring_access)])
+def alias_send_notification(notification_id: int, db=Depends(get_db_connection)):
+    return admin_send_notification(notification_id, db)
+
+
+@app.post("/api/dermify/admin/notifications/{notification_id}/mark-sent", dependencies=[Depends(require_monitoring_access)])
+def alias_mark_notification_sent(notification_id: int, db=Depends(get_db_connection)):
+    return admin_mark_notification_sent(notification_id, db)
+
+
+@app.put("/api/dermify/admin/notifications/{notification_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_update_notification(notification_id: int, payload: dict, db=Depends(get_db_connection)):
+    return admin_update_notification(notification_id, payload, db)
+
+
+@app.delete("/api/dermify/admin/notifications/{notification_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_delete_notification(notification_id: int, db=Depends(get_db_connection)):
+    return admin_delete_notification(notification_id, db)
 
 @app.get("/history")
 def get_user_history(request: Request, db=Depends(get_db_connection)):

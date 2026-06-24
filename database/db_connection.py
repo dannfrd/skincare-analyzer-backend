@@ -675,22 +675,70 @@ class DatabaseConnection:
         if not self.engine:
             return None
         try:
+            # Normalize flexible input types: frontend may send JSON as strings
+            data_val = None
+            if data is not None:
+                if isinstance(data, str):
+                    try:
+                        # try parse JSON string
+                        data_parsed = json.loads(data)
+                        data_val = json.dumps(data_parsed, ensure_ascii=False)
+                    except Exception:
+                        # store raw string
+                        data_val = data
+                else:
+                    data_val = json.dumps(data, ensure_ascii=False)
+
+            tokens_val = None
+            if tokens is not None:
+                if isinstance(tokens, str):
+                    try:
+                        tokens_parsed = json.loads(tokens)
+                        tokens_val = json.dumps(tokens_parsed, ensure_ascii=False)
+                    except Exception:
+                        tokens_val = tokens
+                else:
+                    tokens_val = json.dumps(tokens, ensure_ascii=False)
+
+            sched_val = None
+            if scheduled_at:
+                # Accept ISO strings, with or without trailing Z
+                if isinstance(scheduled_at, str):
+                    try:
+                        s = scheduled_at.rstrip("Z")
+                        # fromisoformat can parse YYYY-MM-DDTHH:MM:SS[.ffffff]
+                        sched_dt = datetime.fromisoformat(s)
+                        sched_val = sched_dt
+                    except Exception:
+                        # pass through as string for DB to attempt cast
+                        sched_val = scheduled_at
+                elif isinstance(scheduled_at, datetime):
+                    sched_val = scheduled_at
+
             with self.engine.begin() as conn:
                 insert = conn.execute(text(
                     "INSERT INTO notifications (title, body, data, topic, tokens, status, scheduled_at, sent_by, created_at) VALUES (:title, :body, :data, :topic, :tokens, :status, :scheduled_at, :sent_by, NOW())"
                 ), {
                     "title": title,
                     "body": body,
-                    "data": json.dumps(data, ensure_ascii=False) if data is not None else None,
+                    "data": data_val,
                     "topic": topic,
-                    "tokens": json.dumps(tokens, ensure_ascii=False) if tokens is not None else None,
+                    "tokens": tokens_val,
                     "status": status,
-                    "scheduled_at": scheduled_at,
+                    "scheduled_at": sched_val,
                     "sent_by": sent_by,
                 })
-                return insert.lastrowid
+                try:
+                    return insert.lastrowid
+                except Exception:
+                    # Some DB drivers return inserted_primary_key differently
+                    res = insert
+                    try:
+                        return int(res.inserted_primary_key[0])
+                    except Exception:
+                        return None
         except Exception as e:
-            logger.error(f"Error creating notification: {e}")
+            logger.exception(f"Error creating notification: {e}")
             return None
 
     def get_notifications(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
@@ -793,6 +841,96 @@ class DatabaseConnection:
                 return True
         except Exception as e:
             logger.error(f"Error marking notification sent: {e}")
+            return False
+
+    def mark_notification_failed(self, notification_id: int) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE notifications SET status = 'failed' WHERE id = :id"
+                ), {"id": notification_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error marking notification failed: {e}")
+            return False
+
+    def update_notification(self, notification_id: int, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str, scheduled_at: Optional[str] = None) -> bool:
+        if not self.engine:
+            return False
+        try:
+            data_val = None
+            if data is not None:
+                if isinstance(data, str):
+                    try:
+                        data_parsed = json.loads(data)
+                        data_val = json.dumps(data_parsed, ensure_ascii=False)
+                    except Exception:
+                        data_val = data
+                else:
+                    data_val = json.dumps(data, ensure_ascii=False)
+
+            tokens_val = None
+            if tokens is not None:
+                if isinstance(tokens, str):
+                    try:
+                        tokens_parsed = json.loads(tokens)
+                        tokens_val = json.dumps(tokens_parsed, ensure_ascii=False)
+                    except Exception:
+                        tokens_val = tokens
+                else:
+                    tokens_val = json.dumps(tokens, ensure_ascii=False)
+
+            sched_val = None
+            if scheduled_at:
+                if isinstance(scheduled_at, str):
+                    try:
+                        s = scheduled_at.rstrip("Z")
+                        sched_dt = datetime.fromisoformat(s)
+                        sched_val = sched_dt
+                    except Exception:
+                        sched_val = scheduled_at
+                elif isinstance(scheduled_at, datetime):
+                    sched_val = scheduled_at
+
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    """
+                    UPDATE notifications
+                    SET title = :title,
+                        body = :body,
+                        data = :data,
+                        topic = :topic,
+                        tokens = :tokens,
+                        status = :status,
+                        scheduled_at = :scheduled_at
+                    WHERE id = :id
+                    """
+                ), {
+                    "id": notification_id,
+                    "title": title,
+                    "body": body,
+                    "data": data_val,
+                    "topic": topic,
+                    "tokens": tokens_val,
+                    "status": status,
+                    "scheduled_at": sched_val
+                })
+                return True
+        except Exception as e:
+            logger.error(f"Error updating notification: {e}")
+            return False
+
+    def delete_notification(self, notification_id: int) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text("DELETE FROM notifications WHERE id = :id"), {"id": notification_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting notification: {e}")
             return False
 
     @staticmethod
