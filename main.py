@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import os
@@ -615,7 +616,6 @@ def process_text_analysis(
 
 from modules.product_recommender import get_recommendations as _recommender_get
 from modules.product_recommender import set_ingesting as _set_ingesting
-from modules.fcm_notification import send_notification
 
 
 @app.get("/recommendations")
@@ -726,86 +726,6 @@ def admin_reingest(_: None = Depends(require_monitoring_access)):
             "Proses selesai dalam beberapa menit."
         ),
     }
-
-
-# --- Admin Notification management ---
-class NotificationCreateRequest(BaseModel):
-    title: str
-    body: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    topic: Optional[str] = None
-    tokens: Optional[List[str]] = None
-    scheduled_at: Optional[datetime] = None
-    send_now: Optional[bool] = False
-
-
-@app.post('/admin/notifications', dependencies=[Depends(require_monitoring_access)])
-def admin_create_notification(payload: NotificationCreateRequest, request: Request, db=Depends(get_db_connection)):
-    # store notification
-    scheduled_iso = payload.scheduled_at.isoformat() if payload.scheduled_at else None
-    sent_by = _resolve_user_id_from_request(request, db)
-    nid = db.create_notification(payload.title.strip(), (payload.body or '').strip() or None, payload.data or None, (payload.topic or '').strip() or None, payload.tokens or None, status=('scheduled' if payload.scheduled_at else 'draft'), scheduled_at=scheduled_iso, sent_by=None)
-    if not nid:
-        raise HTTPException(status_code=500, detail='Failed to create notification')
-
-    result = {"id": nid}
-
-    if payload.send_now:
-        try:
-            resp = send_notification(payload.title, payload.body or '', payload.data or {}, topic=payload.topic, tokens=payload.tokens)
-            db.mark_notification_sent(nid, sent_by=sent_by)
-            result["sent"] = True
-            result["response"] = resp
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Send failed: {e}")
-
-    return result
-
-
-@app.get('/admin/notifications', dependencies=[Depends(require_monitoring_access)])
-def admin_list_notifications(limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0), db=Depends(get_db_connection)):
-    return {"items": db.get_notifications(limit=limit, offset=offset)}
-
-
-@app.get('/admin/notifications/{notification_id}', dependencies=[Depends(require_monitoring_access)])
-def admin_get_notification(notification_id: int, db=Depends(get_db_connection)):
-    note = db.get_notification_by_id(notification_id)
-    if not note:
-        raise HTTPException(status_code=404, detail='Notification not found')
-    return note
-
-
-@app.post('/admin/notifications/{notification_id}/send', dependencies=[Depends(require_monitoring_access)])
-def admin_send_stored_notification(notification_id: int, request: Request, db=Depends(get_db_connection)):
-    note = db.get_notification_by_id(notification_id)
-    if not note:
-        raise HTTPException(status_code=404, detail='Notification not found')
-
-    try:
-        resp = send_notification(note.get('title'), note.get('body') or '', note.get('data') or {}, topic=note.get('topic'), tokens=note.get('tokens'))
-        sent_by = _resolve_user_id_from_request(request, db)
-        db.mark_notification_sent(notification_id, sent_by=sent_by)
-        return {"status": "sent", "response": resp}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
-
-
-@app.get('/admin/debug-headers')
-def admin_debug_headers(request: Request):
-    """Temporary debug endpoint: returns request headers and decoded JWT payload (if any).
-    Use only for local/debugging; remove in production.
-    """
-    headers = {k: v for k, v in request.headers.items()}
-    auth = headers.get('authorization') or headers.get('Authorization')
-    jwt_payload = None
-    if auth and isinstance(auth, str) and auth.lower().startswith('bearer '):
-        token = auth.split(' ', 1)[1]
-        try:
-            jwt_payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        except Exception as e:
-            jwt_payload = {"error": str(e)}
-
-    return {"headers": headers, "jwt_payload": jwt_payload}
 
 
 def _current_timestamp() -> datetime:
