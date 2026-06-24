@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue
-from modules.embedding_utils import get_embedding
+from modules.embedding_utils import get_embedding, get_embeddings_batch
 
 # Qdrant Database Path
 QDRANT_DATA_DIR = os.path.join(
