@@ -18,17 +18,7 @@ def _normalize_name(value: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9\s\-\+\./]", " ", value.upper())
     return re.sub(r"\s+", " ", normalized).strip()
 
-# Initialize client lazily or on module load
-try:
-    _qdrant_client = QdrantClient(path=QDRANT_DATA_DIR)
-    # check if collection exists
-    if not _qdrant_client.collection_exists(COLLECTION_NAME):
-        print(f"Warning: Qdrant collection '{COLLECTION_NAME}' does not exist. Run qdrant_setup.py first.")
-        _qdrant_client = None
-except Exception as e:
-    print(f"Error initializing Qdrant client: {e}")
-    _qdrant_client = None
-
+# Remove global client initialization to prevent persistent file locking.
 
 def _clip(value: str, max_len: int = 220) -> str:
     """Clip text to max length"""
@@ -42,12 +32,18 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
     """
     Get simple description for a single ingredient from Qdrant.
     """
-    if not ingredient_name or not ingredient_name.strip() or not _qdrant_client:
+    if not ingredient_name or not ingredient_name.strip():
         return {}
         
+    client = None
     try:
+        from modules.qdrant_client_factory import get_qdrant_client
+        client = get_qdrant_client()
+        if not client.collection_exists(COLLECTION_NAME):
+            return {}
+            
         normalized_name = _normalize_name(ingredient_name)
-        exact_matches, _ = _qdrant_client.scroll(
+        exact_matches, _ = client.scroll(
             collection_name=COLLECTION_NAME,
             scroll_filter=Filter(
                 must=[
@@ -67,7 +63,7 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
             score = 1.0
         else:
             vector = get_embedding(ingredient_name)
-            search_result = _qdrant_client.search(
+            search_result = client.search(
                 collection_name=COLLECTION_NAME,
                 query_vector=vector,
                 limit=1
@@ -119,6 +115,12 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
     except Exception as e:
         print(f"Error querying Qdrant for {ingredient_name}: {e}")
         return {}
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def build_rag_context(
@@ -132,59 +134,70 @@ def build_rag_context(
     if not cleaned_tokens:
         return "", {"enabled": False, "reason": "empty_tokens", "items": []}
         
-    if not _qdrant_client:
-        return "", {"enabled": False, "reason": "qdrant_client_unavailable", "items": []}
-
-    max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "12"))
-    
+    client = None
     selected_items: List[Dict[str, Any]] = []
-    seen_names = set()
-
-    # Batch embedding generation for all tokens at once
     try:
-        vectors = get_embeddings_batch(cleaned_tokens)
-    except Exception as e:
-        print(f"Error generating batch embeddings in build_rag_context: {e}")
-        vectors = [[0.0] * 384 for _ in cleaned_tokens]
+        from modules.qdrant_client_factory import get_qdrant_client
+        client = get_qdrant_client()
+        if not client.collection_exists(COLLECTION_NAME):
+            return "", {"enabled": False, "reason": "qdrant_collection_missing", "items": []}
 
-    for i, token in enumerate(cleaned_tokens):
+        max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "12"))
+        seen_names = set()
+
+        # Batch embedding generation for all tokens at once
         try:
-            vector = vectors[i]
-            search_result = _qdrant_client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=vector,
-                limit=1
-            )
-            
-            if not search_result:
-                continue
-                
-            best_hit = search_result[0]
-            # Threshold to prevent bad semantic matches
-            if best_hit.score < 0.55:
-                continue
-                
-            payload = best_hit.payload
-            if not payload:
-                continue
-                
-            name = payload.get("name", "")
-            
-            if name.upper() in seen_names:
-                continue
-                
-            seen_names.add(name.upper())
-            
-            item_data = dict(payload)
-            item_data["token"] = token
-            item_data["match_type"] = f"semantic (score: {best_hit.score:.2f})"
-            selected_items.append(item_data)
-            
-            if len(selected_items) >= max_items:
-                break
+            vectors = get_embeddings_batch(cleaned_tokens)
         except Exception as e:
-            print(f"Error querying token {token}: {e}")
-            continue
+            print(f"Error generating batch embeddings in build_rag_context: {e}")
+            vectors = [[0.0] * 384 for _ in cleaned_tokens]
+
+        for i, token in enumerate(cleaned_tokens):
+            try:
+                vector = vectors[i]
+                search_result = client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=vector,
+                    limit=1
+                )
+                
+                if not search_result:
+                    continue
+                    
+                best_hit = search_result[0]
+                # Threshold to prevent bad semantic matches
+                if best_hit.score < 0.55:
+                    continue
+                    
+                payload = best_hit.payload
+                if not payload:
+                    continue
+                    
+                name = payload.get("name", "")
+                
+                if name.upper() in seen_names:
+                    continue
+                    
+                seen_names.add(name.upper())
+                
+                item_data = dict(payload)
+                item_data["token"] = token
+                item_data["match_type"] = f"semantic (score: {best_hit.score:.2f})"
+                selected_items.append(item_data)
+                
+                if len(selected_items) >= max_items:
+                    break
+            except Exception as e:
+                print(f"Error querying token {token}: {e}")
+                continue
+    except Exception as e:
+        print(f"Error querying Qdrant in build_rag_context: {e}")
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     if not selected_items:
         return "", {
