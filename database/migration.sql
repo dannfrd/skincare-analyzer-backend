@@ -247,3 +247,27 @@ CREATE INDEX idx_analysis_details_ingredient_id ON analysis_details(ingredient_i
 
 CREATE INDEX idx_scan_ingredients_scan_id ON scan_ingredients(scan_id);
 CREATE INDEX idx_scan_ingredients_ingredient_id ON scan_ingredients(ingredient_id);
+
+-- =========================
+-- NOTIFICATIONS
+-- =========================
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    body TEXT,
+    data JSON NULL,
+    topic VARCHAR(100) NULL,
+    tokens LONGTEXT NULL,
+    status ENUM('draft','scheduled','sent','failed') NOT NULL DEFAULT 'draft',
+    scheduled_at TIMESTAMP NULL,
+    sent_at TIMESTAMP NULL,
+    sent_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_notifications_user
+        FOREIGN KEY (sent_by) REFERENCES users(id)
+        ON DELETE SET NULL
+);
+
+CREATE INDEX idx_notifications_status ON notifications(status);
+CREATE INDEX idx_notifications_scheduled_at ON notifications(scheduled_at);
