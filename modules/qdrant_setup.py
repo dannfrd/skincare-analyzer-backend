@@ -29,6 +29,10 @@ DATASET_INCIDECODER_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_ingredi
 DATASET_INCIDECODER_PRODUCTS = os.path.join(DATASET_DIR, "incidecoder_products.csv")
 DATASET_INCIDECODER_PRODUCT_INGREDIENTS = os.path.join(DATASET_DIR, "incidecoder_product_ingredients.csv")
 
+DATASET_SKINCARISMA_INGREDIENTS = os.path.join(DATASET_DIR, "skincarisma_ingredients.csv")
+DATASET_SKINCARISMA_PRODUCTS = os.path.join(DATASET_DIR, "skincarisma_products.csv")
+DATASET_SKINCARISMA_PRODUCT_INGREDIENTS = os.path.join(DATASET_DIR, "skincarisma_product_ingredients.csv")
+
 
 
 def _normalize_name(value: str) -> str:
@@ -345,6 +349,150 @@ def _load_incidecoder_products_dataset() -> Dict[str, List[str]]:
     return product_mapping
 
 
+def _load_skincarisma_ingredients_dataset() -> Dict[str, Dict[str, Any]]:
+    """Load Skincarisma ingredients CSV.
+    
+    Returns a dict keyed by normalized ingredient name.
+    """
+    if not os.path.exists(DATASET_SKINCARISMA_INGREDIENTS):
+        print(f"Warning: {DATASET_SKINCARISMA_INGREDIENTS} not found.")
+        return {}
+
+    knowledge: Dict[str, Dict[str, Any]] = {}
+    try:
+        with open(
+            DATASET_SKINCARISMA_INGREDIENTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+        ) as csv_file:
+            lines = csv_file.read().splitlines()
+
+        for raw_line in lines[1:]:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.endswith(";;"):
+                line = line[:-2]
+
+            if line.startswith('"') and line.endswith('"'):
+                line = line[1:-1]
+
+            line = line.replace('""', '"')
+            values = next(csv.reader([line]), [])
+            if len(values) < 2:
+                continue
+
+            sc_id = str(values[0]).strip()
+            name = str(values[1] if len(values) > 1 else "").strip()
+            if not name:
+                continue
+
+            rating = str(values[2] if len(values) > 2 else "").strip()
+            functions = str(values[3] if len(values) > 3 else "").strip()
+            description = str(values[4] if len(values) > 4 else "").strip()
+
+            key = _normalize_name(name)
+            if not key:
+                continue
+
+            knowledge[key] = {
+                "sc_id": sc_id,
+                "name": name,
+                "rating": rating,
+                "functions": functions,
+                "description": description,
+                "source": "skincarisma"
+            }
+    except Exception as e:
+        print(f"Error loading Skincarisma ingredients: {e}")
+    return knowledge
+
+
+def _load_skincarisma_product_ingredients() -> Dict[str, List[str]]:
+    """Load Skincarisma relation table: ingredient_id -> [sc_product_ids].
+    
+    Namespaces product IDs with 'sc_' to avoid conflicts.
+    """
+    if not os.path.exists(DATASET_SKINCARISMA_PRODUCT_INGREDIENTS):
+        print(f"Warning: {DATASET_SKINCARISMA_PRODUCT_INGREDIENTS} not found.")
+        return {}
+
+    relation: Dict[str, List[str]] = {}
+    try:
+        with open(
+            DATASET_SKINCARISMA_PRODUCT_INGREDIENTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+            newline="",
+        ) as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                ing_id = str(row.get("ingredient_id") or "").strip()
+                prod_id = str(row.get("product_id") or "").strip()
+                if not ing_id or not prod_id:
+                    continue
+                
+                # Namespace Skincarisma product_id with sc_
+                namespaced_prod_id = f"sc_{prod_id}"
+                if ing_id not in relation:
+                    relation[ing_id] = []
+                if namespaced_prod_id not in relation[ing_id]:
+                    relation[ing_id].append(namespaced_prod_id)
+    except Exception as e:
+        print(f"Error loading Skincarisma product_ingredients: {e}")
+
+    return relation
+
+
+def _load_skincarisma_products_by_id() -> Dict[str, Dict[str, Any]]:
+    """Load skincarisma_products.csv keyed by namespaced product ID 'sc_{id}'."""
+    if not os.path.exists(DATASET_SKINCARISMA_PRODUCTS):
+        print(f"Warning: {DATASET_SKINCARISMA_PRODUCTS} not found.")
+        return {}
+
+    products: Dict[str, Dict[str, Any]] = {}
+    try:
+        with open(
+            DATASET_SKINCARISMA_PRODUCTS,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+            newline="",
+        ) as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                pid = str(row.get("id") or "").strip()
+                product_name = str(row.get("product_name") or "").strip()
+                brand = str(row.get("brand") or "").strip()
+                if not pid or not product_name:
+                    continue
+
+                namespaced_pid = f"sc_{pid}"
+                ingredients_raw = str(row.get("ingredient_raw") or "").strip()
+                ingredient_list = [
+                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
+                    for part in ingredients_raw.split(",")
+                    if part.strip()
+                ]
+
+                products[namespaced_pid] = {
+                    "id": namespaced_pid,
+                    "name": product_name,
+                    "brand": brand,
+                    "category": str(row.get("category") or "").strip(),
+                    "url": str(row.get("product_url") or "").strip(),
+                    "price": str(row.get("price") or "").strip(),
+                    "ingredients": [i for i in ingredient_list if i],
+                }
+    except Exception as e:
+        print(f"Error loading Skincarisma products by id: {e}")
+
+    return products
+
+
 def setup_qdrant():
     print("Initializing Qdrant Setup...")
     
@@ -365,6 +513,15 @@ def setup_qdrant():
           f"covering {len(inci_product_ingredients)} unique ingredients")
     print(f"  Products loaded by ID: {len(inci_products_by_id)}")
 
+    print("Loading Skincarisma product-ingredient relation table...")
+    sc_ingredients = _load_skincarisma_ingredients_dataset()
+    sc_product_ingredients = _load_skincarisma_product_ingredients()  # ing_id -> [sc_prod_ids]
+    sc_products_by_id = _load_skincarisma_products_by_id()           # sc_prod_id -> {name,brand,...}
+
+    print(f"  Skincarisma relation entries: {sum(len(v) for v in sc_product_ingredients.values())} rows "
+          f"covering {len(sc_product_ingredients)} unique ingredients")
+    print(f"  Skincarisma products loaded by ID: {len(sc_products_by_id)}")
+
     # Merge ingredients
     print("Merging dataset entries...")
     all_keys = set()
@@ -372,6 +529,7 @@ def setup_qdrant():
     all_keys.update(categories.keys())
     all_keys.update(bpom_harmful.keys())
     all_keys.update(inci_ingredients.keys())
+    all_keys.update(sc_ingredients.keys())
 
     merged_data_list = []
     
@@ -391,6 +549,7 @@ def setup_qdrant():
             "sources": [],
             # NEW: fields for semantic product recommendation
             "inci_id": "",
+            "sc_id": "",
             "related_product_ids": [],
         }
 
@@ -403,6 +562,19 @@ def setup_qdrant():
             merged["sources"].append("incidecoder")
             # Store the INCI numeric ID for cross-referencing the relation table
             merged["inci_id"] = data.get("inci_id", "")
+
+        if key in sc_ingredients:
+            data = sc_ingredients[key]
+            if not merged["name"]:
+                merged["name"] = data["name"]
+            if not merged["description"] and data.get("description"):
+                merged["description"] = data["description"]
+            if not merged["functions"] and data.get("functions"):
+                merged["functions"] = data["functions"]
+            if not merged["rating"] and data.get("rating"):
+                merged["rating"] = data["rating"]
+            merged["sources"].append("skincarisma")
+            merged["sc_id"] = data.get("sc_id", "")
 
         if key in descriptions:
             data = descriptions[key]
@@ -442,19 +614,36 @@ def setup_qdrant():
         if key in inci_products:
             merged["found_in_products"] = inci_products[key]
 
-        # NEW: populate related_product_ids from the relation table
+        # NEW: populate related_product_ids from both relation tables
         inci_id = merged.get("inci_id", "")
         if inci_id and inci_id in inci_product_ingredients:
-            product_ids = inci_product_ingredients[inci_id]
-            merged["related_product_ids"] = product_ids
-            # Augment found_in_products with names from the relation table (if not already populated)
-            if not merged["found_in_products"]:
-                for pid in product_ids[:5]:
-                    prod_info = inci_products_by_id.get(pid)
-                    if prod_info:
-                        display = f"{prod_info['brand']} - {prod_info['name']}" if prod_info.get("brand") else prod_info["name"]
-                        if display not in merged["found_in_products"]:
-                            merged["found_in_products"].append(display)
+            merged["related_product_ids"].extend(inci_product_ingredients[inci_id])
+
+        sc_id = merged.get("sc_id", "")
+        if sc_id and sc_id in sc_product_ingredients:
+            merged["related_product_ids"].extend(sc_product_ingredients[sc_id])
+
+        # Deduplicate
+        merged["related_product_ids"] = list(set(merged["related_product_ids"]))
+
+        # Populate found_in_products with names from both datasets (limit to 5)
+        display_names = []
+        # INCI first
+        for pid in [x for x in merged["related_product_ids"] if not str(x).startswith("sc_")][:5]:
+            prod_info = inci_products_by_id.get(pid)
+            if prod_info:
+                display = f"{prod_info['brand']} - {prod_info['name']}" if prod_info.get("brand") else prod_info["name"]
+                display_names.append(display)
+        # Skincarisma next
+        for pid in [x for x in merged["related_product_ids"] if str(x).startswith("sc_")]:
+            if len(display_names) >= 5:
+                break
+            prod_info = sc_products_by_id.get(pid)
+            if prod_info:
+                display = f"{prod_info['brand']} - {prod_info['name']}" if prod_info.get("brand") else prod_info["name"]
+                display_names.append(display)
+
+        merged["found_in_products"] = display_names
 
         merged_data_list.append(merged)
     

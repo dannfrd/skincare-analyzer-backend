@@ -702,12 +702,14 @@ def admin_reingest(_: None = Depends(require_monitoring_access)):
     """
     import threading
     from modules.qdrant_setup import setup_qdrant
+    from modules.product_recommender import clear_recommender_cache
 
     def _run_ingest():
         _set_ingesting(True)
         try:
             print("[reingest] Starting Qdrant re-ingestion...")
             setup_qdrant()
+            clear_recommender_cache()
             print("[reingest] Done.")
         except Exception as e:
             print(f"[reingest] ERROR: {e}")
