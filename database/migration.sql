@@ -283,4 +283,8 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX idx_notifications_status ON notifications(status);
 CREATE INDEX idx_notifications_scheduled_at ON notifications(scheduled_at);
+<<<<<<< HEAD
+
+=======
 >>>>>>> d54adc0cedec7835407a76baff9b0d22e25ed755
+>>>>>>> 9e4abe29b38e2005474780fc623e6e18c61c8072
