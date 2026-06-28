@@ -66,6 +66,13 @@ class UserOut(BaseModel):
 class GoogleLoginPayload(BaseModel):
     id_token: str
 
+class ForgotPasswordPayload(BaseModel):
+    email: EmailStr
+
+class ResetPasswordPayload(BaseModel):
+    email: EmailStr
+    new_password: str
+
 
 def _ensure_firebase_initialized() -> None:
     try:
@@ -275,6 +282,37 @@ def register(payload: UserRegister, request: Request, db: Session = Depends(get_
 
     token = create_access_token({"sub": user_dict["email"], "id": user_dict["id"]})
     return {"token": token, "user": UserOut(**user_dict)}
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordPayload, db: Session = Depends(get_db_session)):
+    result = db.execute(
+        text("SELECT id FROM users WHERE email = :email LIMIT 1"),
+        {"email": payload.email}
+    )
+    user_exist = result.scalar()
+    if not user_exist:
+        raise HTTPException(status_code=404, detail="Email tidak terdaftar dalam sistem.")
+    return {"status": "success", "message": "Email terverifikasi. Silakan masukkan password baru Anda."}
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordPayload, db: Session = Depends(get_db_session)):
+    result = db.execute(
+        text("SELECT id FROM users WHERE email = :email LIMIT 1"),
+        {"email": payload.email}
+    )
+    user_exist = result.scalar()
+    if not user_exist:
+        raise HTTPException(status_code=404, detail="Email tidak terdaftar dalam sistem.")
+
+    _validate_password_policy(payload.new_password)
+    hashed_pw = get_password_hash(payload.new_password)
+
+    db.execute(
+        text("UPDATE users SET password = :password WHERE email = :email"),
+        {"password": hashed_pw, "email": payload.email}
+    )
+    db.commit()
+    return {"status": "success", "message": "Password berhasil diubah. Silakan login."}
 
 @router.post("/google")
 def google_login(

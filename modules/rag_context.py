@@ -78,8 +78,12 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
             payload = best_hit.payload or {}
             score = best_hit.score
 
-            # Avoid assigning metadata from a semantically similar but different ingredient.
-            if _normalize_name(str(payload.get("name") or "")) != normalized_name:
+            # Memvalidasi kemiripan string agar variasi OCR atau typo ringan tetap terdeteksi
+            hit_name = str(payload.get("name") or "").strip()
+            norm_hit = _normalize_name(hit_name)
+            import difflib
+            sim_ratio = difflib.SequenceMatcher(None, normalized_name, norm_hit).ratio()
+            if not (normalized_name in norm_hit or norm_hit in normalized_name or sim_ratio >= 0.50 or score >= 0.70):
                 return {}
 
         if not payload:
@@ -154,6 +158,34 @@ def build_rag_context(
 
         for i, token in enumerate(cleaned_tokens):
             try:
+                norm_token = _normalize_name(token)
+                exact_matches, _ = client.scroll(
+                    collection_name=COLLECTION_NAME,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="normalized_name",
+                                match=MatchValue(value=norm_token),
+                            )
+                        ]
+                    ),
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                if exact_matches and exact_matches[0].payload:
+                    payload = exact_matches[0].payload
+                    name = payload.get("name", "")
+                    if name.upper() not in seen_names:
+                        seen_names.add(name.upper())
+                        item_data = dict(payload)
+                        item_data["token"] = token
+                        item_data["match_type"] = "exact"
+                        selected_items.append(item_data)
+                        if len(selected_items) >= max_items:
+                            break
+                        continue
+
                 vector = vectors[i]
                 search_result = client.search(
                     collection_name=COLLECTION_NAME,

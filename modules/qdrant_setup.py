@@ -661,6 +661,15 @@ def setup_qdrant():
             collection_name=COLLECTION_NAME,
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
         )
+        try:
+            client.create_payload_index(
+                collection_name=COLLECTION_NAME,
+                field_name="normalized_name",
+                field_schema="keyword"
+            )
+            print("Created payload index for 'normalized_name'.")
+        except Exception as e:
+            print(f"Note: Could not create payload index: {e}")
         
         print("Preparing documents for vectorization via Gemini API...")
         points = []
