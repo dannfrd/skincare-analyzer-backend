@@ -411,6 +411,26 @@ def root():
     return {"message": "Skincare Analyzer Backend Running"}
 
 
+def require_monitoring_access(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """Allow monitoring API key or a JWT issued to an admin account."""
+    if API_MONITORING_KEY and x_api_key == API_MONITORING_KEY:
+        return
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if str(payload.get("role") or "").lower() == "admin":
+                return
+        except JWTError:
+            pass
+
+    raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PRODUCT CATEGORIES — dibaca dari tabel `product_categories` di database.
 # Admin dapat mengelola via endpoint /admin/categories (CRUD).
@@ -883,25 +903,6 @@ def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> s
 
     return "Secara umum formula cukup aman, tetap perhatikan kecocokan dengan jenis kulit Anda."
 
-
-def require_monitoring_access(
-    authorization: str | None = Header(default=None),
-    x_api_key: str | None = Header(default=None),
-):
-    """Allow monitoring API key or a JWT issued to an admin account."""
-    if API_MONITORING_KEY and x_api_key == API_MONITORING_KEY:
-        return
-
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1]
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            if str(payload.get("role") or "").lower() == "admin":
-                return
-        except JWTError:
-            pass
-
-    raise HTTPException(status_code=401, detail="Admin authentication required")
 
 
 @app.post("/admin/reingest")
