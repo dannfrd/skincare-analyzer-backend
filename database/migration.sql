@@ -271,3 +271,44 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX idx_notifications_status ON notifications(status);
 CREATE INDEX idx_notifications_scheduled_at ON notifications(scheduled_at);
+
+
+-- =========================
+-- PRODUCT CATEGORIES
+-- Dikelola oleh admin via CRUD endpoint.
+-- Dibaca oleh Flutter app melalui GET /categories.
+-- is_active = 0 artinya soft-deleted (tidak tampil di app, tapi histori tetap aman).
+-- =========================
+CREATE TABLE IF NOT EXISTS product_categories (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL UNIQUE,
+    icon       VARCHAR(100) NULL DEFAULT 'category',
+    color      VARCHAR(20)  NULL DEFAULT '#4CB35B',
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active  TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_product_categories_active ON product_categories(is_active, sort_order);
+
+-- Seed data awal — 14 kategori default
+INSERT INTO product_categories (name, icon, color, sort_order) VALUES
+    ('Toner',         'opacity',                   '#F39C12', 1),
+    ('Serum',         'science',                   '#9B59B6', 2),
+    ('Moisturizer',   'water_drop',                '#16A085', 3),
+    ('Sunscreen',     'wb_sunny',                  '#4A90D9', 4),
+    ('Cleanser',      'soap',                      '#2ECC71', 5),
+    ('Exfoliator',    'auto_fix_high',             '#E74C3C', 6),
+    ('Eye Cream',     'visibility',                '#8E44AD', 7),
+    ('Lip Care',      'face_retouching_natural',   '#E91E7A', 8),
+    ('Mask',          'masks',                     '#1ABC9C', 9),
+    ('Body Lotion',   'water',                     '#E67E22', 10),
+    ('Body Wash',     'shower',                    '#3498DB', 11),
+    ('Essence',       'science',                   '#9B59B6', 12),
+    ('Primer',        'brush',                     '#C0392B', 13),
+    ('BB / CC Cream', 'brush',                     '#C0392B', 14)
+ON DUPLICATE KEY UPDATE
+    icon       = VALUES(icon),
+    color      = VALUES(color),
+    sort_order = VALUES(sort_order);

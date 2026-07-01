@@ -74,6 +74,7 @@ DATASET_DIR = os.path.join(
     "dataset_scincare",
 )
 PRODUCTS_CSV = os.path.join(DATASET_DIR, "incidecoder_products.csv")
+SKINCARISMA_PRODUCTS_CSV = os.path.join(DATASET_DIR, "skincarisma_products.csv")
 
 # Minimum cosine similarity to consider an ingredient "semantically similar"
 SEMANTIC_THRESHOLD = 0.72
@@ -105,52 +106,89 @@ _products_by_id_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    """Load dan cache incidecoder_products.csv dalam dua bentuk:
-    - list  untuk string-overlap fallback
-    - dict  keyed by product id untuk semantic lookup
-    """
+    """Load dan cache incidecoder_products.csv dan skincarisma_products.csv."""
     global _products_cache, _products_by_id_cache
     if _products_cache:
         return _products_cache, _products_by_id_cache
 
-    if not os.path.exists(PRODUCTS_CSV):
-        return [], {}
-
     products_list: List[Dict[str, Any]] = []
     products_by_id: Dict[str, Dict[str, Any]] = {}
 
-    with open(PRODUCTS_CSV, encoding="utf-8-sig", errors="ignore", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            pid = str(row.get("id") or "").strip()
-            name = str(row.get("product_name") or "").strip()
-            brand = str(row.get("brand") or "").strip()
-            if not name:
-                continue
+    # 1. Load INCIDecoder products
+    if os.path.exists(PRODUCTS_CSV):
+        with open(PRODUCTS_CSV, encoding="utf-8-sig", errors="ignore", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                pid = str(row.get("id") or "").strip()
+                name = str(row.get("product_name") or "").strip()
+                brand = str(row.get("brand") or "").strip()
+                if not name:
+                    continue
 
-            raw = str(row.get("ingredient_raw") or "")
-            ings = [
-                re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
-                for part in raw.split(",")
-                if part.strip()
-            ]
-            ings = [i for i in ings if i]
+                raw = str(row.get("ingredient_raw") or "")
+                ings = [
+                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
+                    for part in raw.split(",")
+                    if part.strip()
+                ]
+                ings = [i for i in ings if i]
 
-            entry = {
-                "id": pid,
-                "name": name,
-                "brand": brand,
-                "category": str(row.get("category") or "").strip(),
-                "url": str(row.get("product_url") or "").strip(),
-                "ingredients": ings,
-            }
-            products_list.append(entry)
-            if pid:
-                products_by_id[pid] = entry
+                entry = {
+                    "id": pid,
+                    "name": name,
+                    "brand": brand,
+                    "category": str(row.get("category") or "").strip(),
+                    "url": str(row.get("product_url") or "").strip(),
+                    "ingredients": ings,
+                    "price": str(row.get("price") or "").strip(),
+                }
+                products_list.append(entry)
+                if pid:
+                    products_by_id[pid] = entry
+
+    # 2. Load Skincarisma products (prefixing IDs with sc_)
+    if os.path.exists(SKINCARISMA_PRODUCTS_CSV):
+        with open(SKINCARISMA_PRODUCTS_CSV, encoding="utf-8-sig", errors="ignore", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                pid = str(row.get("id") or "").strip()
+                name = str(row.get("product_name") or "").strip()
+                brand = str(row.get("brand") or "").strip()
+                if not name:
+                    continue
+
+                namespaced_pid = f"sc_{pid}"
+                raw = str(row.get("ingredient_raw") or "")
+                ings = [
+                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
+                    for part in raw.split(",")
+                    if part.strip()
+                ]
+                ings = [i for i in ings if i]
+
+                entry = {
+                    "id": namespaced_pid,
+                    "name": name,
+                    "brand": brand,
+                    "category": str(row.get("category") or "").strip(),
+                    "url": str(row.get("product_url") or "").strip(),
+                    "ingredients": ings,
+                    "price": str(row.get("price") or "").strip(),
+                }
+                products_list.append(entry)
+                products_by_id[namespaced_pid] = entry
 
     _products_cache = [p for p in products_list if p["name"]]
     _products_by_id_cache = products_by_id
     return _products_cache, _products_by_id_cache
+
+
+def clear_recommender_cache() -> None:
+    """Clear cached products and force reload from CSV on next request."""
+    global _products_cache, _products_by_id_cache
+    _products_cache = []
+    _products_by_id_cache = {}
+    print("[recommender] In-memory products cache cleared.")
 
 
 # ── String-overlap fallback ────────────────────────────────────────────────────
@@ -205,6 +243,7 @@ def get_string_overlap_recommendations(
             "brand": product["brand"],
             "category_tags": product.get("category", ""),
             "url": product.get("url", ""),
+            "price": product.get("price", ""),
             "similarity_pct": min(round(score * 100), 99),
             "matched_ingredients": matched,
             "match_reason": "Komposisi bahan serupa",
@@ -369,6 +408,7 @@ def get_semantic_recommendations(
             "brand": prod.get("brand", ""),
             "category_tags": prod.get("category", ""),
             "url": prod.get("url", ""),
+            "price": prod.get("price", ""),
             "similarity_pct": min(round(final_score * 100), 99),
             "matched_ingredients": matched_display[:4],
             "match_reason": match_reason,

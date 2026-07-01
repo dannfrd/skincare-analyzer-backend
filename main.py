@@ -410,6 +410,238 @@ class UserHistorySummaryResponse(BaseModel):
 def root():
     return {"message": "Skincare Analyzer Backend Running"}
 
+
+def require_monitoring_access(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """Allow monitoring API key or a JWT issued to an admin account."""
+    if API_MONITORING_KEY and x_api_key == API_MONITORING_KEY:
+        return
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if str(payload.get("role") or "").lower() == "admin":
+                return
+        except JWTError:
+            pass
+
+    raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRODUCT CATEGORIES — dibaca dari tabel `product_categories` di database.
+# Admin dapat mengelola via endpoint /admin/categories (CRUD).
+# Flutter app mengambil via GET /categories (hanya yang is_active=1).
+# ══════════════════════════════════════════════════════════════════════════════
+
+class CategoryCreateRequest(BaseModel):
+    name:       str            = Field(..., min_length=1, max_length=100)
+    icon:       Optional[str]  = Field(default="category", max_length=100)
+    color:      Optional[str]  = Field(default="#4CB35B", max_length=20)
+    sort_order: Optional[int]  = Field(default=0)
+
+class CategoryUpdateRequest(BaseModel):
+    name:       Optional[str] = Field(default=None, max_length=100)
+    icon:       Optional[str] = Field(default=None, max_length=100)
+    color:      Optional[str] = Field(default=None, max_length=20)
+    sort_order: Optional[int] = Field(default=None)
+    is_active:  Optional[int] = Field(default=None)
+
+
+# ── Public: digunakan Flutter app ─────────────────────────────────────────────
+
+@app.get("/categories")
+def get_categories(db=Depends(get_db_connection)):
+    """
+    Mengembalikan daftar kategori aktif untuk dropdown scan di Flutter app.
+    Hanya kategori dengan is_active = 1 yang ditampilkan, diurutkan by sort_order.
+    """
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, name, icon, color, sort_order "
+            "FROM product_categories "
+            "WHERE is_active = 1 "
+            "ORDER BY sort_order ASC, name ASC"
+        )).fetchall()
+
+    categories = [dict(r._mapping) for r in rows]
+    return {"categories": categories, "total": len(categories)}
+
+
+# ── Admin CRUD: semua endpoint butuh monitoring access ────────────────────────
+
+@app.get("/admin/categories", dependencies=[Depends(require_monitoring_access)])
+def admin_list_categories(
+    include_inactive: bool = Query(default=False),
+    db=Depends(get_db_connection),
+):
+    """List semua kategori (termasuk nonaktif jika include_inactive=true)."""
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.connect() as conn:
+        query = (
+            "SELECT id, name, icon, color, sort_order, is_active, created_at, updated_at "
+            "FROM product_categories "
+        )
+        if not include_inactive:
+            query += "WHERE is_active = 1 "
+        query += "ORDER BY sort_order ASC, name ASC"
+        rows = conn.execute(text(query)).fetchall()
+
+    return {
+        "categories": [dict(r._mapping) for r in rows],
+        "total": len(rows),
+    }
+
+
+@app.post("/admin/categories", dependencies=[Depends(require_monitoring_access)])
+def admin_create_category(data: CategoryCreateRequest, db=Depends(get_db_connection)):
+    """Tambah kategori baru. Name harus unik."""
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.begin() as conn:
+        # Cek duplikat
+        existing = conn.execute(
+            text("SELECT id FROM product_categories WHERE name = :name"),
+            {"name": data.name.strip()},
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Kategori '{data.name}' sudah ada.")
+
+        result = conn.execute(
+            text(
+                "INSERT INTO product_categories (name, icon, color, sort_order) "
+                "VALUES (:name, :icon, :color, :sort_order)"
+            ),
+            {
+                "name":       data.name.strip(),
+                "icon":       data.icon or "category",
+                "color":      data.color or "#4CB35B",
+                "sort_order": data.sort_order or 0,
+            },
+        )
+        new_id = result.lastrowid
+
+    return {
+        "message": "Kategori berhasil ditambahkan.",
+        "id": new_id,
+        "name": data.name.strip(),
+    }
+
+
+@app.put("/admin/categories/{category_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_update_category(
+    category_id: int,
+    data: CategoryUpdateRequest,
+    db=Depends(get_db_connection),
+):
+    """Edit nama, icon, warna, urutan, atau status aktif suatu kategori."""
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.begin() as conn:
+        # Pastikan kategori ada
+        existing = conn.execute(
+            text("SELECT id FROM product_categories WHERE id = :id"),
+            {"id": category_id},
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Kategori tidak ditemukan.")
+
+        # Bangun SET clause secara dinamis dari field yang dikirim
+        set_parts = []
+        params: Dict[str, Any] = {"id": category_id}
+
+        if data.name is not None:
+            set_parts.append("name = :name")
+            params["name"] = data.name.strip()
+        if data.icon is not None:
+            set_parts.append("icon = :icon")
+            params["icon"] = data.icon
+        if data.color is not None:
+            set_parts.append("color = :color")
+            params["color"] = data.color
+        if data.sort_order is not None:
+            set_parts.append("sort_order = :sort_order")
+            params["sort_order"] = data.sort_order
+        if data.is_active is not None:
+            set_parts.append("is_active = :is_active")
+            params["is_active"] = data.is_active
+
+        if not set_parts:
+            raise HTTPException(status_code=400, detail="Tidak ada field yang diubah.")
+
+        conn.execute(
+            text(f"UPDATE product_categories SET {', '.join(set_parts)} WHERE id = :id"),
+            params,
+        )
+
+    return {"message": "Kategori berhasil diperbarui.", "id": category_id}
+
+
+@app.delete("/admin/categories/{category_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_delete_category(category_id: int, db=Depends(get_db_connection)):
+    """
+    Soft-delete: set is_active = 0 (kategori tidak muncul di app).
+    Data histori scan yang menggunakan kategori ini tetap aman.
+    """
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.begin() as conn:
+        existing = conn.execute(
+            text("SELECT id, name FROM product_categories WHERE id = :id"),
+            {"id": category_id},
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Kategori tidak ditemukan.")
+
+        conn.execute(
+            text("UPDATE product_categories SET is_active = 0 WHERE id = :id"),
+            {"id": category_id},
+        )
+
+    return {
+        "message": f"Kategori '{existing.name}' berhasil dinonaktifkan.",
+        "id": category_id,
+    }
+
+
+@app.post(
+    "/admin/categories/{category_id}/restore",
+    dependencies=[Depends(require_monitoring_access)],
+)
+def admin_restore_category(category_id: int, db=Depends(get_db_connection)):
+    """Aktifkan kembali kategori yang sebelumnya dinonaktifkan."""
+    if not getattr(db, "engine", None):
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    with db.engine.begin() as conn:
+        existing = conn.execute(
+            text("SELECT id, name FROM product_categories WHERE id = :id"),
+            {"id": category_id},
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Kategori tidak ditemukan.")
+
+        conn.execute(
+            text("UPDATE product_categories SET is_active = 1 WHERE id = :id"),
+            {"id": category_id},
+        )
+
+    return {
+        "message": f"Kategori '{existing.name}' berhasil diaktifkan kembali.",
+        "id": category_id,
+    }
+
 @app.post("/analyze")
 def analyze_ingredients(data: IngredientRequest, request: Request):
     raw_text = data.text
@@ -672,25 +904,6 @@ def _build_recommendation_text(expert_report: Dict[str, Any], ai_text: str) -> s
     return "Secara umum formula cukup aman, tetap perhatikan kecocokan dengan jenis kulit Anda."
 
 
-def require_monitoring_access(
-    authorization: str | None = Header(default=None),
-    x_api_key: str | None = Header(default=None),
-):
-    """Allow monitoring API key or a JWT issued to an admin account."""
-    if API_MONITORING_KEY and x_api_key == API_MONITORING_KEY:
-        return
-
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1]
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            if str(payload.get("role") or "").lower() == "admin":
-                return
-        except JWTError:
-            pass
-
-    raise HTTPException(status_code=401, detail="Admin authentication required")
-
 
 @app.post("/admin/reingest")
 def admin_reingest(_: None = Depends(require_monitoring_access)):
@@ -705,12 +918,14 @@ def admin_reingest(_: None = Depends(require_monitoring_access)):
     """
     import threading
     from modules.qdrant_setup import setup_qdrant
+    from modules.product_recommender import clear_recommender_cache
 
     def _run_ingest():
         _set_ingesting(True)
         try:
             print("[reingest] Starting Qdrant re-ingestion...")
             setup_qdrant()
+            clear_recommender_cache()
             print("[reingest] Done.")
         except Exception as e:
             print(f"[reingest] ERROR: {e}")
