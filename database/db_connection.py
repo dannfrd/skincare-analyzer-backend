@@ -1994,11 +1994,11 @@ class DatabaseConnection:
             return False
 
     def get_ingredients(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Returns ingredient list with usage metrics."""
+        """Returns ingredient list directly from the ingredients table."""
         if not self.engine:
             return []
 
-        limit = max(1, min(limit, 500))
+        limit = max(1, min(limit, 5000))
 
         try:
             with self.engine.connect() as conn:
@@ -2008,21 +2008,11 @@ class DatabaseConnection:
                 query = text(
                     """
                     SELECT
-                        i.id,
-                        i.name,
-                        i.`function` AS ingredient_function,
-                        i.risk_level,
-                        i.created_at,
-                        COUNT(DISTINCT si.id) AS usage_count
-                    FROM ingredients i
-                    LEFT JOIN scan_ingredients si ON si.ingredient_id = i.id
-                    GROUP BY
-                        i.id,
-                        i.name,
-                        i.`function`,
-                        i.risk_level,
-                        i.created_at
-                    ORDER BY i.created_at DESC
+                        id,
+                        name,
+                        description
+                    FROM ingredients
+                    ORDER BY id DESC
                     LIMIT :limit
                     """
                 )
@@ -2033,10 +2023,10 @@ class DatabaseConnection:
                     {
                         "id": row.get("id"),
                         "name": row.get("name"),
-                        "function": row.get("ingredient_function"),
-                        "risk_level": row.get("risk_level"),
-                        "usage_count": row.get("usage_count") or 0,
-                        "created_at": self._to_iso_datetime(row.get("created_at")),
+                        "description": row.get("description"),
+                        "function": None,
+                        "risk_level": None,
+                        "created_at": None,
                     }
                     for row in rows
                 ]
