@@ -172,6 +172,9 @@ Final Analysis Result
 - `GET /metrics/users` - User statistics
 - `GET /metrics/ingredients` - Ingredient statistics
 
+### Mobile Endpoints (requires user JWT)
+- `GET /mobile/metrics/ingredients` - Ingredient list for the mobile app
+
 ## 🔧 Configuration Files
 
 - `main.py` - FastAPI application
@@ -191,6 +194,20 @@ curl http://localhost:8000/
 curl -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
   -d '{"text": "Water, Glycerin, Niacinamide"}'
+```
+
+## 📥 Import Dataset ke Database
+
+Untuk memindahkan dataset ingredient ke tabel `ingredients`:
+
+```bash
+python database/import_ingredients_dataset.py --file data/dataset_scincare/cosmetic_ingredients.csv
+```
+
+Kalau ingin cek dulu tanpa menulis ke database:
+
+```bash
+python database/import_ingredients_dataset.py --file data/dataset_scincare/cosmetic_ingredients.csv --dry-run
 ```
 
 ## 🚀 Deployment

@@ -377,9 +377,9 @@ class ProductSummaryResponse(BaseModel):
 class IngredientSummaryResponse(BaseModel):
     id: int
     name: Optional[str] = None
+    description: Optional[str] = None
     function: Optional[str] = None
     risk_level: Optional[str] = None
-    usage_count: int = 0
     created_at: Optional[str] = None
 
 
@@ -429,6 +429,23 @@ def require_monitoring_access(
             pass
 
     raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+def require_user_access(authorization: str | None = Header(default=None)):
+    """Allow any authenticated user with a valid JWT."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
+
+    if not payload.get("sub"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    return payload
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1001,7 +1018,7 @@ def metrics_recent(
 
 @app.get("/metrics/users", response_model=List[UserSummaryResponse])
 def metrics_users(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1010,7 +1027,7 @@ def metrics_users(
 
 @app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
 def metrics_analyses(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1019,7 +1036,7 @@ def metrics_analyses(
 
 @app.get("/metrics/analysis-details", response_model=List[AnalysisDetailSummaryResponse])
 def metrics_analysis_details(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1028,7 +1045,7 @@ def metrics_analysis_details(
 
 @app.get("/metrics/products", response_model=List[ProductSummaryResponse])
 def metrics_products(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1134,8 +1151,17 @@ def admin_delete_ingredient(ingredient_id: int, db=Depends(get_db_connection)):
 
 @app.get("/metrics/ingredients", response_model=List[IngredientSummaryResponse])
 def metrics_ingredients(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_ingredients(limit=limit)
+
+
+@app.get("/mobile/metrics/ingredients", response_model=List[IngredientSummaryResponse])
+def mobile_metrics_ingredients(
+    limit: int = Query(default=1000, ge=1, le=5000),
+    _: Dict[str, Any] = Depends(require_user_access),
 ):
     db = get_db_connection()
     return db.get_ingredients(limit=limit)
@@ -1143,7 +1169,7 @@ def metrics_ingredients(
 
 @app.get("/metrics/user-histories", response_model=List[UserHistorySummaryResponse])
 def metrics_user_histories(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
