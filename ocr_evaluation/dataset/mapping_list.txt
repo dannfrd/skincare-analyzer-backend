@@ -1,0 +1,16 @@
+=== DAFTAR PEMETAAN DATA SAMPEL EVALUASI OCR ===
+sample_002 -> Dermalogica - Dermal Clay Cleanser
+sample_003 -> NIOD - Sanskrit Saponins
+sample_004 -> Drunk Elephant - T.L.C. Sukari Babyfacial
+sample_005 -> Drunk Elephant - Slaai™ Makeup-Melting Butter Cleanser
+sample_006 -> Trilogy - Rosehip Oil Antioxidant +
+sample_007 -> Mario Badescu - Facial Spray With Aloe, Cucumber And Green Tea
+sample_008 -> Super Facialist - Vitamin C+ Skin Renew Cleansing Oil
+sample_009 -> The Ordinary - Serum Foundation
+sample_010 -> The Organic Pharmacy - Carrot Butter Cleanser
+sample_011 -> Geek & Gorgeous - Zero Feel Gentle Mattifying Day Cream
+sample_012 -> Maybelline New York - Fit Me Microscopic Concealer
+sample_013 -> Maybelline - Grippy Mist Setting Spray
+sample_014 -> Marcelle - Skincaring Inner Glow Serum Foundation
+sample_015 -> Celimax - Hydrating + Calming Cica Serum Mask
+sample_016 -> Manucurist - Green - Gouttes Sechantes Drying Drops
