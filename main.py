@@ -196,7 +196,8 @@ async def upload_profile_picture(request: Request, file: UploadFile = File(...),
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{file.filename}"
+        safe_fname = os.path.basename(file.filename) if file.filename else "profile.jpg"
+        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{safe_fname}"
         save_path = os.path.join("uploads/profile_pictures", filename)
         with open(save_path, "wb") as f:
             content = await file.read()
@@ -702,13 +703,20 @@ async def analyze_image(
 ):
     """Receives an image for OCR, then processes the text."""
     try:
-        # Save temporary file
-        temp_path = f"uploads/{file.filename}"
+        # Save temporary file safely
+        safe_name = os.path.basename(file.filename) if file.filename else "upload.jpg"
+        temp_path = os.path.join("uploads", f"temp_{safe_name}")
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
         extracted_text = extract_text_from_image_path(temp_path)
+        
+        print("\n" + "="*60)
+        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name}")
+        print("-" * 60)
+        print(f"📑 Teks Hasil OCR:\n{extracted_text.strip() if extracted_text.strip() else '(Kosong / Tidak ada teks)'}")
+        print("="*60 + "\n")
         
         # Cleanup temp file
         if os.path.exists(temp_path):
@@ -751,6 +759,10 @@ def process_text_analysis(
     
     # 4. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
+    
+    matched_names = [m.get("name") for m in matched_ingredients if m.get("status") != "Unknown"]
+    print(f"🔬 [NLP ANALYSIS] Total Tokens ({len(cleaned_tokens)}): {cleaned_tokens[:10]}...")
+    print(f"✅ [INGREDIENT MATCHING] Berhasil Dikenali ({len(matched_names)} bahan): {matched_names}\n")
     
     # 5. Enrich matched ingredients with dataset descriptions
     # Tambahkan deskripsi singkat dari dataset RAG untuk setiap ingredient

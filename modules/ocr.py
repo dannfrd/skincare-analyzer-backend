@@ -76,7 +76,10 @@ class PaddleOCRProcessor:
                 cls._ocr_instance = PaddleOCR(
                     use_doc_orientation_classify=False,
                     use_doc_unwarping=False,
-                    use_textline_orientation=False,
+                    use_textline_orientation=True,
+                    text_det_thresh=0.2,
+                    text_det_box_thresh=0.5,
+                    text_det_unclip_ratio=1.8,
                     lang='en',
                     ocr_version='PP-OCRv4',
                     cpu_threads=2,
@@ -90,14 +93,45 @@ class PaddleOCRProcessor:
     def extract_text(self, image_path_or_array) -> str:
         ocr = self.get_instance()
         try:
-            # In paddleocr 2.x, the method is ocr(), not predict()
-            result = ocr.ocr(image_path_or_array, cls=False)
             lines = []
+            # Try PaddleOCR 3.x / PP-OCRv4 predict method first
+            if hasattr(ocr, 'predict') and callable(getattr(ocr, 'predict')):
+                try:
+                    result = ocr.predict(image_path_or_array)
+                    if result:
+                        for res in result:
+                            data = res.json if hasattr(res, 'json') else (res if isinstance(res, dict) else None)
+                            if isinstance(data, dict):
+                                rec_texts = data.get("rec_texts")
+                                dt_polys = data.get("dt_polys")
+                                if not rec_texts and "res" in data and isinstance(data["res"], dict):
+                                    rec_texts = data["res"].get("rec_texts")
+                                    dt_polys = data["res"].get("dt_polys")
+                                
+                                if rec_texts:
+                                    if dt_polys and len(dt_polys) == len(rec_texts):
+                                        try:
+                                            paired = sorted(zip(dt_polys, rec_texts), key=lambda x: x[0][0][1] if x[0] and len(x[0]) > 0 else 0)
+                                            lines.extend([str(t[1]) for t in paired])
+                                        except Exception:
+                                            lines.extend([str(t) for t in rec_texts])
+                                    else:
+                                        lines.extend([str(t) for t in rec_texts])
+                    if lines:
+                        return "\n".join(lines)
+                except Exception as e_pred:
+                    logger.debug(f"ocr.predict failed or not applicable: {e_pred}, falling back to ocr.ocr")
+
+            # Fallback to standard ocr() method without cls=False
+            result = ocr.ocr(image_path_or_array)
             if result:
                 for res in result:
                     if res:
-                        for line in res:
-                            # Each line is: [box, (text, confidence)]
+                        try:
+                            res_sorted = sorted(res, key=lambda r: r[0][0][1] if r and len(r) > 0 and isinstance(r[0], (list, tuple)) else 0)
+                        except Exception:
+                            res_sorted = res
+                        for line in res_sorted:
                             if line and len(line) > 1 and isinstance(line[1], (tuple, list)):
                                 text = line[1][0]
                                 if text:
@@ -122,37 +156,8 @@ def extract_text_from_image_path(image_path: str, psm_mode: int = 6) -> str:
     """Helper function to run the OCR extraction from a file path."""
     engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
     if engine == "paddleocr":
-        import cv2
-        resized_temp_path = None
-        target_path = image_path
-        try:
-            img = cv2.imread(image_path)
-            if img is not None:
-                height, width = img.shape[:2]
-                max_side = max(height, width)
-                if max_side > 800:
-                    scale = 800.0 / max_side
-                    new_width = int(width * scale)
-                    new_height = int(height * scale)
-                    resized_img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                    
-                    base, ext = os.path.splitext(image_path)
-                    resized_temp_path = f"{base}_resized{ext}"
-                    cv2.imwrite(resized_temp_path, resized_img)
-                    target_path = resized_temp_path
-                    logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height} for PaddleOCR speedup")
-        except Exception as e:
-            logger.warning(f"Failed to resize image for PaddleOCR: {e}")
-
-        try:
-            processor = PaddleOCRProcessor()
-            return processor.extract_text(target_path)
-        finally:
-            if resized_temp_path and os.path.exists(resized_temp_path):
-                try:
-                    os.remove(resized_temp_path)
-                except Exception:
-                    pass
+        processor = PaddleOCRProcessor()
+        return processor.extract_text(image_path)
     else:
         # Standard Tesseract needs numpy array from preprocess_image
         from modules.preprocessing import preprocess_image

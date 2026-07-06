@@ -15,6 +15,7 @@ COLLECTION_NAME = "skincare_ingredients"
 
 
 def _normalize_name(value: str) -> str:
+    value = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0]', ' ', value)
     normalized = re.sub(r"[^A-Za-z0-9\s\-\+\./]", " ", value.upper())
     return re.sub(r"\s+", " ", normalized).strip()
 
@@ -146,7 +147,7 @@ def build_rag_context(
         if not client.collection_exists(COLLECTION_NAME):
             return "", {"enabled": False, "reason": "qdrant_collection_missing", "items": []}
 
-        max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "12"))
+        max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "25"))
         seen_names = set()
 
         # Batch embedding generation for all tokens at once
@@ -190,15 +191,23 @@ def build_rag_context(
                 search_result = client.search(
                     collection_name=COLLECTION_NAME,
                     query_vector=vector,
-                    limit=1
+                    limit=3
                 )
                 
                 if not search_result:
                     continue
                     
-                best_hit = search_result[0]
-                # Threshold to prevent bad semantic matches
-                if best_hit.score < 0.55:
+                best_hit = None
+                for hit in search_result:
+                    if hit.score >= 0.55:
+                        p = hit.payload or {}
+                        if p.get("description") or p.get("found_in_products"):
+                            best_hit = hit
+                            break
+                if not best_hit and search_result[0].score >= 0.55:
+                    best_hit = search_result[0]
+
+                if not best_hit:
                     continue
                     
                 payload = best_hit.payload

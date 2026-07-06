@@ -77,13 +77,14 @@ PRODUCTS_CSV = os.path.join(DATASET_DIR, "incidecoder_products.csv")
 SKINCARISMA_PRODUCTS_CSV = os.path.join(DATASET_DIR, "skincarisma_products.csv")
 
 # Minimum cosine similarity to consider an ingredient "semantically similar"
-SEMANTIC_THRESHOLD = 0.72
+SEMANTIC_THRESHOLD = 0.68
 
 # Maximum similar ingredients to look up per query ingredient
-TOP_K_PER_INGREDIENT = 8
+# Ditingkatkan dari 8 ke 25 karena penambahan 1400+ vektor Skincarisma membuat node produk terdorong ke rank lebih rendah
+TOP_K_PER_INGREDIENT = 25
 
 # Minimum score fraction (0..1) for a product to be included in results
-MIN_PRODUCT_SCORE = 0.10
+MIN_PRODUCT_SCORE = 0.08
 
 # ── Ingest lock flag ───────────────────────────────────────────────────────────
 # Saat backend melakukan reingest (via /admin/reingest), flag ini True
@@ -103,6 +104,12 @@ def set_ingesting(state: bool) -> None:
 
 _products_cache: List[Dict[str, Any]] = []
 _products_by_id_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def _clean_ing(part: str) -> str:
+    part = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0]', ' ', part)
+    part = re.sub(r"\s*\([^)]*\)", "", part)
+    return re.sub(r'\s+', ' ', part).strip().lower()
 
 
 def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
@@ -126,11 +133,7 @@ def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
                     continue
 
                 raw = str(row.get("ingredient_raw") or "")
-                ings = [
-                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
-                    for part in raw.split(",")
-                    if part.strip()
-                ]
+                ings = [_clean_ing(part) for part in raw.split(",") if part.strip()]
                 ings = [i for i in ings if i]
 
                 entry = {
@@ -159,11 +162,7 @@ def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
 
                 namespaced_pid = f"sc_{pid}"
                 raw = str(row.get("ingredient_raw") or "")
-                ings = [
-                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
-                    for part in raw.split(",")
-                    if part.strip()
-                ]
+                ings = [_clean_ing(part) for part in raw.split(",") if part.strip()]
                 ings = [i for i in ings if i]
 
                 entry = {
@@ -201,16 +200,19 @@ def _string_overlap_score(
         return 0.0, []
 
     matched: List[str] = []
-    for qi in query_ings:
-        q = qi.lower().strip()
-        if not q:
-            continue
+    valid_queries = [qi for qi in query_ings if len(qi.strip()) >= 3]
+    if not valid_queries:
+        return 0.0, []
+
+    for qi in valid_queries:
+        q = _clean_ing(qi)
         for pi in product_ings:
-            if q in pi or pi in q:
+            # Cegah false positive pada kata terlalu pendek atau umum (min 4 karakter agar zinc, urea, mica masuk)
+            if q == pi or (len(q) >= 4 and (q in pi or pi in q)):
                 matched.append(qi)
                 break
 
-    score = len(matched) / len(query_ings) if query_ings else 0.0
+    score = len(matched) / len(valid_queries)
     return round(score, 4), matched[:4]
 
 
