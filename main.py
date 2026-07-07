@@ -196,7 +196,8 @@ async def upload_profile_picture(request: Request, file: UploadFile = File(...),
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{file.filename}"
+        safe_fname = os.path.basename(file.filename) if file.filename else "profile.jpg"
+        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{safe_fname}"
         save_path = os.path.join("uploads/profile_pictures", filename)
         with open(save_path, "wb") as f:
             content = await file.read()
@@ -377,9 +378,9 @@ class ProductSummaryResponse(BaseModel):
 class IngredientSummaryResponse(BaseModel):
     id: int
     name: Optional[str] = None
+    description: Optional[str] = None
     function: Optional[str] = None
     risk_level: Optional[str] = None
-    usage_count: int = 0
     created_at: Optional[str] = None
 
 
@@ -429,6 +430,23 @@ def require_monitoring_access(
             pass
 
     raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+def require_user_access(authorization: str | None = Header(default=None)):
+    """Allow any authenticated user with a valid JWT."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token error: {str(e)}")
+
+    if not payload.get("sub"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    return payload
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -685,13 +703,20 @@ async def analyze_image(
 ):
     """Receives an image for OCR, then processes the text."""
     try:
-        # Save temporary file
-        temp_path = f"uploads/{file.filename}"
+        # Save temporary file safely
+        safe_name = os.path.basename(file.filename) if file.filename else "upload.jpg"
+        temp_path = os.path.join("uploads", f"temp_{safe_name}")
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
         extracted_text = extract_text_from_image_path(temp_path)
+        
+        print("\n" + "="*60)
+        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name}")
+        print("-" * 60)
+        print(f"📑 Teks Hasil OCR:\n{extracted_text.strip() if extracted_text.strip() else '(Kosong / Tidak ada teks)'}")
+        print("="*60 + "\n")
         
         # Cleanup temp file
         if os.path.exists(temp_path):
@@ -734,6 +759,10 @@ def process_text_analysis(
     
     # 4. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
+    
+    matched_names = [m.get("name") for m in matched_ingredients if m.get("status") != "Unknown"]
+    print(f"🔬 [NLP ANALYSIS] Total Tokens ({len(cleaned_tokens)}): {cleaned_tokens[:10]}...")
+    print(f"✅ [INGREDIENT MATCHING] Berhasil Dikenali ({len(matched_names)} bahan): {matched_names}\n")
     
     # 5. Enrich matched ingredients with dataset descriptions
     # Tambahkan deskripsi singkat dari dataset RAG untuk setiap ingredient
@@ -1001,7 +1030,7 @@ def metrics_recent(
 
 @app.get("/metrics/users", response_model=List[UserSummaryResponse])
 def metrics_users(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1010,7 +1039,7 @@ def metrics_users(
 
 @app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
 def metrics_analyses(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1019,7 +1048,7 @@ def metrics_analyses(
 
 @app.get("/metrics/analysis-details", response_model=List[AnalysisDetailSummaryResponse])
 def metrics_analysis_details(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1028,7 +1057,7 @@ def metrics_analysis_details(
 
 @app.get("/metrics/products", response_model=List[ProductSummaryResponse])
 def metrics_products(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()
@@ -1134,8 +1163,17 @@ def admin_delete_ingredient(ingredient_id: int, db=Depends(get_db_connection)):
 
 @app.get("/metrics/ingredients", response_model=List[IngredientSummaryResponse])
 def metrics_ingredients(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
+):
+    db = get_db_connection()
+    return db.get_ingredients(limit=limit)
+
+
+@app.get("/mobile/metrics/ingredients", response_model=List[IngredientSummaryResponse])
+def mobile_metrics_ingredients(
+    limit: int = Query(default=1000, ge=1, le=5000),
+    _: Dict[str, Any] = Depends(require_user_access),
 ):
     db = get_db_connection()
     return db.get_ingredients(limit=limit)
@@ -1143,7 +1181,7 @@ def metrics_ingredients(
 
 @app.get("/metrics/user-histories", response_model=List[UserHistorySummaryResponse])
 def metrics_user_histories(
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=1000, ge=1, le=5000),
     _: None = Depends(require_monitoring_access),
 ):
     db = get_db_connection()

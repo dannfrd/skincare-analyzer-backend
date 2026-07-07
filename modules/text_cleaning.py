@@ -26,10 +26,14 @@ class TextCleaner:
         }
 
     def _fix_ocr_typos(self, text: str) -> str:
-        """Fix common character misrecognitions."""
+        """Fix common character misrecognitions and standard separators."""
         cleaned_text = text
         for wrong, right in self.ocr_mistakes.items():
             cleaned_text = cleaned_text.replace(wrong, right)
+        # Convert bullet points and symbols acting as separators to commas
+        cleaned_text = re.sub(r'[•·*|]', ',', cleaned_text)
+        # Convert period followed by space or uppercase letter (e.g. METHICONE.METHYLMETHACRYLATE or SUCROSE LAURATE. DIPROPYLENE) to comma
+        cleaned_text = re.sub(r'\.\s+(?=[A-Z])|\.(?=[A-Z]{3,})', ', ', cleaned_text)
         return cleaned_text
 
     def _remove_junk_characters(self, text: str) -> str:

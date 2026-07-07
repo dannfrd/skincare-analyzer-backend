@@ -77,13 +77,14 @@ PRODUCTS_CSV = os.path.join(DATASET_DIR, "incidecoder_products.csv")
 SKINCARISMA_PRODUCTS_CSV = os.path.join(DATASET_DIR, "skincarisma_products.csv")
 
 # Minimum cosine similarity to consider an ingredient "semantically similar"
-SEMANTIC_THRESHOLD = 0.72
+SEMANTIC_THRESHOLD = 0.68
 
 # Maximum similar ingredients to look up per query ingredient
-TOP_K_PER_INGREDIENT = 8
+# Ditingkatkan dari 8 ke 25 karena penambahan 1400+ vektor Skincarisma membuat node produk terdorong ke rank lebih rendah
+TOP_K_PER_INGREDIENT = 25
 
 # Minimum score fraction (0..1) for a product to be included in results
-MIN_PRODUCT_SCORE = 0.10
+MIN_PRODUCT_SCORE = 0.08
 
 # ── Ingest lock flag ───────────────────────────────────────────────────────────
 # Saat backend melakukan reingest (via /admin/reingest), flag ini True
@@ -103,6 +104,12 @@ def set_ingesting(state: bool) -> None:
 
 _products_cache: List[Dict[str, Any]] = []
 _products_by_id_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def _clean_ing(part: str) -> str:
+    part = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0]', ' ', part)
+    part = re.sub(r"\s*\([^)]*\)", "", part)
+    return re.sub(r'\s+', ' ', part).strip().lower()
 
 
 def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
@@ -126,11 +133,7 @@ def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
                     continue
 
                 raw = str(row.get("ingredient_raw") or "")
-                ings = [
-                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
-                    for part in raw.split(",")
-                    if part.strip()
-                ]
+                ings = [_clean_ing(part) for part in raw.split(",") if part.strip()]
                 ings = [i for i in ings if i]
 
                 entry = {
@@ -159,11 +162,7 @@ def _load_products() -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
 
                 namespaced_pid = f"sc_{pid}"
                 raw = str(row.get("ingredient_raw") or "")
-                ings = [
-                    re.sub(r"\s*\([^)]*\)", "", part).strip().lower()
-                    for part in raw.split(",")
-                    if part.strip()
-                ]
+                ings = [_clean_ing(part) for part in raw.split(",") if part.strip()]
                 ings = [i for i in ings if i]
 
                 entry = {
@@ -191,6 +190,72 @@ def clear_recommender_cache() -> None:
     print("[recommender] In-memory products cache cleared.")
 
 
+# ── Active Ingredients Filtering ───────────────────────────────────────────────
+
+def filter_active_ingredients(ingredient_names: List[str]) -> List[str]:
+    """
+    Memfilter daftar bahan agar rekomendasi produk hanya mengambil bahan aktif 
+    (key ingredients / beneficial actives) seperti Niacinamide, Retinol, Salicylic Acid, 
+    Centella, Ceramide, Ekstrak Alami, Vitamin, dll.
+    Mengabaikan bahan dasar umum (air, pelarut, pengawet, pengemulsi, pewangi, pengental).
+    """
+    if not ingredient_names:
+        return []
+        
+    inactive_blacklist = {
+        'AQUA', 'WATER', 'GLYCERIN', 'BUTYLENE GLYCOL', 'PROPYLENE GLYCOL', 'DIPROPYLENE GLYCOL',
+        'PROPANEDIOL', 'ALCOHOL', 'ALCOHOL DENAT', 'PHENOXYETHANOL', 'CHLORPHENESIN', 'PARABEN',
+        'METHYLPARABEN', 'PROPYLPARABEN', 'ETHYLPARABEN', 'BUTYLPARABEN', 'EDTA', 'DISODIUM EDTA',
+        'TETRASODIUM EDTA', 'FRAGRANCE', 'PARFUM', 'AROMA', 'LINALOOL', 'LIMONENE', 'GERANIOL',
+        'CITRONELLOL', 'CITRAL', 'CARBOMER', 'XANTHAN GUM', 'PVP', 'DIMETHICONE', 'CYCLOPENTASILOXANE',
+        'CYCLOHEXASILOXANE', 'MINERAL OIL', 'PARAFFIN', 'PETROLATUM', 'STEARIC ACID', 'CETEARYL ALCOHOL',
+        'CETYL ALCOHOL', 'GLYCERYL STEARATE', 'COCAMIDOPROPYL BETAINE', 'SODIUM LAURYL SULFATE',
+        'SODIUM LAURETH SULFATE', 'SODIUM BENZOATE', 'POTASSIUM SORBATE', 'CITRIC ACID', 'SODIUM HYDROXIDE',
+        'TRIETHANOLAMINE', 'AMINOMETHYL PROPANOL', 'MICA', 'SILICA', 'BHT', 'DISODIUM PHOSPHATE',
+        'SODIUM PHOSPHATE', 'HYDROXYETHYLCELLULOSE', 'POLYSORBATE 20', 'POLYSORBATE 60', 'POLYSORBATE 80',
+        'POLYSORBATE', 'TRIDECETH-9', 'PEG-HYDROGENATED CASTOR OIL', '1,2-HEXANEDIOL', 'CAPRYLYL GLYCOL'
+    }
+    
+    active_keywords = (
+        'NIACINAMIDE', 'RETINOL', 'RETINAL', 'BAKUCHIOL', 'ARBUTIN', 'TRANEXAMIC', 'ASCORBIC', 'VITAMIN C',
+        'VITAMIN E', 'TOCOPHEROL', 'SALICYLIC', 'GLYCOLIC', 'LACTIC', 'MANDELIC', 'AZELAIC', 'GLUCONOLACTONE',
+        'CENTELLA', 'MADECASSOSIDE', 'ASIATICOSIDE', 'CERAMIDE', 'HYALURONIC', 'HYALURONATE', 'PANTHENOL',
+        'ALLANTOIN', 'BISABOLOL', 'ALOE', 'CALENDULA', 'LICORICE', 'GLYCYRRHIZA', 'TEA TREE', 'MELALEUCA',
+        'CAMELLIA', 'GREEN TEA', 'MUGWORT', 'ARTEMISIA', 'SNAIL', 'GLUCAN', 'PROPOLIS', 'BIFIDA', 'FERMENT',
+        'PEPTIDE', 'COLLAGEN', 'ZINC', 'CAFFEINE', 'SQUALANE', 'ROSEHIP', 'GINSENG', 'EXTRACT', 'FILTRATE',
+        'OIL', 'BUTTER', 'ACID', 'RESVERATROL', 'GLUTATHIONE', 'UVINUL', 'TINOSORB', 'AVOBENZONE', 'OCTINOXATE',
+        'EXFOLIAT', 'BRIGHTEN', 'SOOTH'
+    )
+    
+    filtered = []
+    for ing in ingredient_names:
+        ing_upper = ing.strip().upper()
+        if not ing_upper:
+            continue
+            
+        # Check blacklist and common prefix patterns
+        if ing_upper in inactive_blacklist:
+            continue
+        if any(ing_upper.startswith(prefix) for prefix in ('PEG-', 'PPG-', 'POLYSORBATE', 'CI ', 'POLYACRYLATE', 'TRIDECETH', 'CETEARETH', 'LAURETH', 'ISOPARAFFIN', 'ISOPROPYL')):
+            continue
+            
+        # Check if it matches active keyword or is not a basic chemical
+        if any(kw in ing_upper for kw in active_keywords):
+            filtered.append(ing)
+            
+    # Fallback: jika setelah difilter ternyata kosong (misal produk sangat sederhana),
+    # kembalikan bahan yang tidak termasuk blacklist
+    if not filtered:
+        for ing in ingredient_names:
+            ing_upper = ing.strip().upper()
+            if ing_upper and ing_upper not in inactive_blacklist and not any(ing_upper.startswith(p) for p in ('PEG-', 'PPG-', 'POLYSORBATE', 'CI ')):
+                filtered.append(ing)
+                
+    active_result = filtered if filtered else ingredient_names
+    print(f"[RECOMMENDER] Filtered {len(ingredient_names)} total ingredients -> {len(active_result)} active ingredients: {active_result[:8]}")
+    return active_result
+
+
 # ── String-overlap fallback ────────────────────────────────────────────────────
 
 def _string_overlap_score(
@@ -201,16 +266,19 @@ def _string_overlap_score(
         return 0.0, []
 
     matched: List[str] = []
-    for qi in query_ings:
-        q = qi.lower().strip()
-        if not q:
-            continue
+    valid_queries = [qi for qi in query_ings if len(qi.strip()) >= 3]
+    if not valid_queries:
+        return 0.0, []
+
+    for qi in valid_queries:
+        q = _clean_ing(qi)
         for pi in product_ings:
-            if q in pi or pi in q:
+            # Cegah false positive pada kata terlalu pendek atau umum (min 4 karakter agar zinc, urea, mica masuk)
+            if q == pi or (len(q) >= 4 and (q in pi or pi in q)):
                 matched.append(qi)
                 break
 
-    score = len(matched) / len(query_ings) if query_ings else 0.0
+    score = len(matched) / len(valid_queries)
     return round(score, 4), matched[:4]
 
 
@@ -221,7 +289,8 @@ def get_string_overlap_recommendations(
 ) -> List[Dict[str, Any]]:
     """Classic string-overlap recommendations (legacy strategy)."""
     products, _ = _load_products()
-    query_ings = [i.strip().lower() for i in ingredient_names if i.strip()]
+    active_ings = filter_active_ingredients(ingredient_names)
+    query_ings = [i.strip().lower() for i in active_ings if i.strip()]
     if not query_ings or not products:
         return []
 
@@ -322,11 +391,12 @@ def get_semantic_recommendations(
         return []
 
     target_cat = standardize_category(category)
+    active_ings = filter_active_ingredients(ingredient_names)
 
     # product_id → {score_sum, hit_count, matched_pairs}
     product_votes: Dict[str, Dict[str, Any]] = {}
 
-    for ing_name in ingredient_names:
+    for ing_name in active_ings:
         ing_name = ing_name.strip()
         if not ing_name:
             continue
@@ -362,7 +432,7 @@ def get_semantic_recommendations(
     if not product_votes:
         return []
 
-    n_query = len([i for i in ingredient_names if i.strip()])
+    n_query = len([i for i in active_ings if i.strip()])
 
     results = []
     for pid, data in product_votes.items():
