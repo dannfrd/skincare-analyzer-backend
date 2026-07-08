@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import os
+import time
 import json
 from jose import jwt, JWTError
 from dotenv import load_dotenv
@@ -710,10 +711,12 @@ async def analyze_image(
             shutil.copyfileobj(file.file, buffer)
         
         # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
+        start_time = time.time()
         extracted_text = extract_text_from_image_path(temp_path)
+        exec_time_ms = int((time.time() - start_time) * 1000)
         
         print("\n" + "="*60)
-        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name}")
+        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name} | ⏱️ Waktu OCR: {exec_time_ms} ms")
         print("-" * 60)
         print(f"📑 Teks Hasil OCR:\n{extracted_text.strip() if extracted_text.strip() else '(Kosong / Tidak ada teks)'}")
         print("="*60 + "\n")
