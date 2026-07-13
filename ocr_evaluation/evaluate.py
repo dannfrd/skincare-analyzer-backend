@@ -166,6 +166,15 @@ SAMPLE_BRANDS = {
     "sample_015": "Celimax",
     "sample_016": "Manucurist",
     "sample_017": "The Ordinary",
+    "g2g_cleanser": "G2G Cleanser",
+    "sunscreen_emina": "Sunscreen Emina",
+    "exfoliasi_skintific": "Exfoliasi Skintific",
+    "cleanser_panthenol": "Facial Wash Scora",
+    "lipcare_madame_gie": "Lipcare Madame Gie",
+    "masker_camille": "Masker Camille",
+    "masker_komedo": "Masker Hidung Komedo",
+    "facial_wash_kahf": "Facial Wash Kahf",
+    "facial_wash_g2g": "Facial Wash G2G",
 }
 
 def main():
@@ -180,6 +189,7 @@ def main():
     dataset_dir = os.path.join(current_dir, "dataset")
     gt_dir = os.path.join(dataset_dir, "ground_truth")
     results_dir = os.path.join(current_dir, "results")
+    output_csv = None
     engines = ["chandra", "tesseract", "mlkit", "paddleocr"]
     
     product_name = None
@@ -189,8 +199,12 @@ def main():
                 engines = [sys.argv[i + 1].lower()]
             elif arg == "--gt_dir" and i + 1 < len(sys.argv):
                 gt_dir = sys.argv[i + 1]
+            elif arg == "--results_dir" and i + 1 < len(sys.argv):
+                results_dir = sys.argv[i + 1]
             elif arg == "--product_name" and i + 1 < len(sys.argv):
                 product_name = sys.argv[i + 1]
+            elif arg == "--output_csv" and i + 1 < len(sys.argv):
+                output_csv = sys.argv[i + 1]
 
     if not os.path.exists(gt_dir):
         print(f"[ERROR] Folder Ground Truth tidak ditemukan di: {gt_dir}")
@@ -292,7 +306,7 @@ def main():
             
     # Simpan ke CSV
     append_mode = "--append" in sys.argv
-    csv_file_path = os.path.join(results_dir, "summary_results.csv")
+    csv_file_path = output_csv if output_csv else os.path.join(results_dir, "summary_results.csv")
     if rows_to_save:
         headers = list(rows_to_save[0].keys())
         file_exists = os.path.exists(csv_file_path) and os.path.getsize(csv_file_path) > 10

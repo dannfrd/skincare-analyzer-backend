@@ -2,4 +2,11 @@ Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),E
 G2G Cleanser (g2g_cleanser_trial_01),paddleocr,5.31%,36.61%,76.47%,81.25%,78.79%,100.00%,100.00%,100.00%,N/A,16,17
 G2G Cleanser (g2g_cleanser_trial_02),paddleocr,12.48%,41.96%,76.47%,81.25%,78.79%,100.00%,100.00%,100.00%,N/A,16,17
 G2G Cleanser (g2g_cleanser_trial_03),paddleocr,7.17%,36.61%,62.50%,62.50%,62.50%,100.00%,93.75%,96.77%,N/A,16,16
-G2G Cleanser (g2g_cleanser_trial_04),paddleocr,17.80%,49.11%,41.67%,31.25%,35.71%,100.00%,75.00%,85.71%,72861,16,12
+G2G Cleanser (g2g_cleanser_trial_04),paddleocr,17.80%,49.11%,41.67%,31.25%,35.71%,100.00%,68.75%,81.48%,72861,16,12
+G2G Cleanser (g2g_cleanser_trial_05),paddleocr,24.57%,53.57%,68.75%,68.75%,68.75%,100.00%,93.75%,96.77%,72454,16,16
+G2G Cleanser (g2g_cleanser_trial_06),paddleocr,15.94%,51.79%,76.47%,81.25%,78.79%,100.00%,100.00%,100.00%,65608,16,17
+G2G Cleanser (g2g_cleanser_trial_07),paddleocr,28.82%,58.93%,66.67%,62.50%,64.52%,100.00%,87.50%,93.33%,67128,16,15
+G2G Cleanser (g2g_cleanser_trial_08),paddleocr,35.72%,68.75%,76.47%,81.25%,78.79%,100.00%,100.00%,100.00%,66135,16,17
+G2G Cleanser (g2g_cleanser_trial_09),paddleocr,15.14%,49.11%,68.75%,68.75%,68.75%,100.00%,93.75%,96.77%,68543,16,16
+G2G Cleanser (g2g_cleanser_trial_10),paddleocr,11.55%,44.64%,68.75%,68.75%,68.75%,100.00%,93.75%,96.77%,60105,16,16
+G2G Cleanser (g2g_cleanser_trial_11),paddleocr,22.58%,52.68%,61.54%,50.00%,55.17%,100.00%,75.00%,85.71%,63320,16,13
