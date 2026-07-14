@@ -194,8 +194,9 @@ Skrip pembuatan laporan ini: `ocr_evaluation/error_analysis.py`
 | 7 | `cleanser_panthenol` | Facial Wash Scora | 12 | 32 | 20 | 1 | **37.50%** |
 | 8 | `facial_wash_g2g` | Facial Wash G2G | 17 | 36 | 19 | 0 | **47.22%** |
 | 9 | `facial_wash_kahf` | Facial Wash Kahf | 21 | 46 | 25 | 0 | **45.65%** |
+| 10 | `wardah_face_mist` | Wardah Face Mist | 4 | 16 | 12 | 1 | **25.00%** |
 
-> **Rata-rata Akurasi Match Skenario 2:** ~70.5% (dari 9 produk berbeda)
+> **Rata-rata Akurasi Match Skenario 2:** ~65.9% (dari 10 produk berbeda)
 
 ---
 
@@ -352,6 +353,21 @@ Skrip pembuatan laporan ini: `ocr_evaluation/error_analysis.py`
 | — `SODIUM DEHYDROACETATE` | **OCR Typo:** Terbaca sebagai `SODIUM CAPRYLHYDROXAMIC ACID`. |
 | — `CI 77891`, `CI 19140`, `CI 77266`, `CI 42090` | **Cut-off Bawah:** Semua kode warna CI (Color Index) berada di paling bawah daftar INCI, terpotong oleh batas bawah frame scan. |
 | Token Noise (FP) | *(Tidak ada)* |
+
+---
+
+#### Produk 10 — Wardah Face Mist (`wardah_face_mist`)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **4 / 16 bahan (25.00%)** |
+| Bahan MISS (12 bahan) | `Niacinamide`, `Propanediol`, `Phenoxyethanol`, `Chlorphenesin`, `Disodium EDTA`, `Allantoin`, `Glycerin`, `PVP`, `Trideceth-9`, `PEG-Hydrogenated Castor Oil`, `Fragrance`, `Polysorbate 20` |
+| Detail Penyebab MISS | |
+| — `Niacinamide`, `Phenoxyethanol` | **Cut-off Atas:** Teks komposisi bagian awal terpotong/hilang batas karakternya pada pengambilan gambar. |
+| — `Propanediol` | **OCR Typo (Token Gabungan):** Terbaca sebagai `PROPYLNEGLYCOL PVP` (kesalahan penggabungan token karena kurangnya koma/pemisah yang jelas). |
+| — `Disodium EDTA`, `Allantoin` | **OCR Typo Parah:** Terbaca sebagai blok token noise `DISODIUM DTAALLANTNGLYERIN` (huruf E pada EDTA hilang menjadi DTA, tergabung dengan Allantoin dan Glycerin). |
+| — `Chlorphenesin`, `Glycerin`, `PVP`, `Trideceth-9` | **Gagal terdeteksi:** Teks tertutup oleh distorsi atau tergabung dalam blok token yang salah terbaca. |
+| — `PEG-Hydrogenated Castor Oil`, `Fragrance`, `Polysorbate 20` | **Cut-off Bawah:** Berada di ujung akhir daftar komposisi, terpotong oleh batas bawah frame kamera saat pengambilan gambar. |
+| Token Noise (FP) | `DISODIUM DTAALLANTNGLYERIN` (blok token gabungan yang cacat akibat hilangnya pemisah koma) |
 
 ---
 

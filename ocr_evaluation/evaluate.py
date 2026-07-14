@@ -175,6 +175,7 @@ SAMPLE_BRANDS = {
     "masker_komedo": "Masker Hidung Komedo",
     "facial_wash_kahf": "Facial Wash Kahf",
     "facial_wash_g2g": "Facial Wash G2G",
+    "wardah_face_mist": "Wardah Face Mist",
 }
 
 def main():
@@ -242,7 +243,7 @@ def main():
         if os.path.exists(gt_ing_path):
             with open(gt_ing_path, "r", encoding="utf-8") as f:
                 content = f.read()
-                gt_ingredients = [item.strip().upper() for item in re.split(r'[,;]', content) if item.strip()]
+                gt_ingredients = [item.strip().upper() for item in re.split(r'[,;\n]', content) if item.strip()]
         else:
             print(f"[WARNING] File ingredient ground truth tidak ditemukan untuk {sample}")
             
