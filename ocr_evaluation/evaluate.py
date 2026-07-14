@@ -310,14 +310,42 @@ def main():
     csv_file_path = output_csv if output_csv else os.path.join(results_dir, "summary_results.csv")
     if rows_to_save:
         headers = list(rows_to_save[0].keys())
+        existing_rows = []
         file_exists = os.path.exists(csv_file_path) and os.path.getsize(csv_file_path) > 10
-        mode = "a" if (append_mode and file_exists) else "w"
-        with open(csv_file_path, mode, encoding="utf-8", newline="") as f:
+        
+        if append_mode and file_exists:
+            with open(csv_file_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames or headers
+                for row in reader:
+                    existing_rows.append(row)
+            
+            # Upsert (Replace if Sample + Engine matches, else append)
+            new_map = {(r["Sample"], r["Engine"]): r for r in rows_to_save}
+            updated_rows = []
+            seen_keys = set()
+            for er in existing_rows:
+                key = (er.get("Sample"), er.get("Engine"))
+                if key in new_map:
+                    updated_rows.append(new_map[key])
+                    seen_keys.add(key)
+                else:
+                    updated_rows.append(er)
+            for r in rows_to_save:
+                key = (r.get("Sample"), r.get("Engine"))
+                if key not in seen_keys:
+                    updated_rows.append(r)
+            final_rows = updated_rows
+            mode_desc = "upsert/append"
+        else:
+            final_rows = rows_to_save
+            mode_desc = "overwrite"
+
+        with open(csv_file_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=headers)
-            if mode == "w":
-                writer.writeheader()
-            writer.writerows(rows_to_save)
-        print(f"\n[SUKSES] Hasil evaluasi detail berhasil disimpan ke: {csv_file_path} (mode: {mode})")
+            writer.writeheader()
+            writer.writerows(final_rows)
+        print(f"\n[SUKSES] Hasil evaluasi detail berhasil disimpan ke: {csv_file_path} (mode: {mode_desc})")
     else:
         print("\n[WARNING] Tidak ada hasil pengujian yang dievaluasi.")
 

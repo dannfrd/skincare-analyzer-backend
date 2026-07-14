@@ -166,13 +166,13 @@ def run_error_analysis(gt_dir: str, results_dir: str, engine: str, output_csv: s
         gt_ingredients = [item.strip() for item in re.split(r'[,;\n]', gt_text) if item.strip()]
 
         # Baca OCR
-        ocr_tokens = []
-        if os.path.exists(ocr_file):
-            with open(ocr_file, "r", encoding="utf-8") as f:
-                ocr_text = f.read()
-            ocr_tokens = clean_text_pipeline(ocr_text, use_ai=False)
-        else:
+        if not os.path.exists(ocr_file):
             print(f"[WARNING] File OCR hasil tidak ditemukan untuk {sname}: {ocr_file}")
+            continue
+
+        with open(ocr_file, "r", encoding="utf-8") as f:
+            ocr_text = f.read()
+        ocr_tokens = clean_text_pipeline(ocr_text, use_ai=False)
 
         # Analisis error
         analysis = analyze_sample_errors(gt_ingredients, ocr_tokens)
