@@ -176,6 +176,7 @@ SAMPLE_BRANDS = {
     "facial_wash_kahf": "Facial Wash Kahf",
     "facial_wash_g2g": "Facial Wash G2G",
     "wardah_face_mist": "Wardah Face Mist",
+    "originote_eye_serum": "Originote Eye Serum",
 }
 
 def main():
@@ -194,6 +195,7 @@ def main():
     engines = ["chandra", "tesseract", "mlkit", "paddleocr"]
     
     product_name = None
+    skenario = 1
     if len(sys.argv) > 1:
         for i, arg in enumerate(sys.argv):
             if arg == "--engine" and i + 1 < len(sys.argv):
@@ -206,6 +208,17 @@ def main():
                 product_name = sys.argv[i + 1]
             elif arg == "--output_csv" and i + 1 < len(sys.argv):
                 output_csv = sys.argv[i + 1]
+            elif arg == "--skenario" and i + 1 < len(sys.argv):
+                skenario = int(sys.argv[i + 1])
+
+    if skenario == 2 and output_csv is None and "--gt_dir" not in sys.argv:
+        gt_dir = os.path.join(dataset_dir, "skenario_2_multi_product")
+        results_dir = os.path.join(current_dir, "results_skenario_2")
+        output_csv = os.path.join(current_dir, "results", "summary_results_skenario_2.csv")
+    elif skenario == 1 and output_csv is None and "--gt_dir" not in sys.argv:
+        gt_dir = os.path.join(dataset_dir, "ground_truth")
+        results_dir = os.path.join(current_dir, "results")
+        output_csv = os.path.join(current_dir, "results", "summary_results.csv")
 
     if not os.path.exists(gt_dir):
         print(f"[ERROR] Folder Ground Truth tidak ditemukan di: {gt_dir}")
@@ -306,7 +319,7 @@ def main():
                 print(f"     [DEBUG] Token yang diekstrak: {ocr_tokens}")
             
     # Simpan ke CSV
-    append_mode = "--append" in sys.argv
+    append_mode = "--overwrite" not in sys.argv
     csv_file_path = output_csv if output_csv else os.path.join(results_dir, "summary_results.csv")
     if rows_to_save:
         headers = list(rows_to_save[0].keys())
