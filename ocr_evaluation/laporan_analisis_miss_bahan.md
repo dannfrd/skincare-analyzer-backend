@@ -384,6 +384,7 @@ Berikut adalah hasil pengujian dan analisis kesalahan saat menggunakan engine **
 | 4 | `exfoliasi_skintific` | Exfoliasi Skintific | 30 | 31 | 1 | 1 | **96.77%** | 1,450* |
 | 5 | `wardah_face_mist` | Wardah Face Mist | 15 | 16 | 1 | 2 | **93.75%** | 1,250* |
 | 6 | `masker_camille` | Masker Camille | 23 | 24 | 1 | 1 | **95.83%** | 1,350* |
+| 7 | `masker_komedo` | Masker Hidung Komedo | 14 | 14 | 0 | 5 | **100%** | 1,150* |
 
 #### Analisis Detail Produk ML Kit (`MLKIT`):
 
@@ -440,6 +441,15 @@ Berikut adalah hasil pengujian dan analisis kesalahan saat menggunakan engine **
 | Detail Penyebab MISS | **Pemecahan Token Angka:** Sama dengan pola pada produk Scora dan Skintific, string `1,2-Hexanediol` terpecah menjadi token `1` dan `2-Hexanediol`. Angka tunggal `1` terhitung miss, sedangkan `2-Hexanediol` berhasil matched. |
 | Token Noise (FP) | `AVENA SATIVA KERNEL MEAL` *(duplikasi deteksi token Avena Sativa Kernel)* |
 | Perbandingan vs PaddleOCR | ML Kit unggul dalam akurasi (**95.83%** vs PaddleOCR **91.67%** karena ML Kit berhasil membaca tepat `Potassium Sorbate` tanpa typo) dan kecepatan yang luar biasa berbeda (~**1.35 detik** vs PaddleOCR **70.76 detik**). |
+
+##### 7. Masker Hidung Komedo (`masker_komedo` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **14 / 14 bahan (100% Sempurna!)** |
+| Bahan MISS | *(Tidak ada — sempurna 100% match)* |
+| Detail Penyebab MISS | *(Tidak ada)* |
+| Token Noise (FP) | `CAMELLA SINENSIS (GREEN LEA)`, `(PARFUM)`, `DS`, `KOSARMBI TIMUR, KEC KO8AMBJ` *(teks alamat pabrik & potongan token di kemasan saset)* |
+| Perbandingan vs PaddleOCR | ML Kit **menolak kelemahan PaddleOCR pada kemasan saset reflektif**! PaddleOCR hanya mencapai **50.00% (7 miss)** dalam waktu **70.97 detik**, sedangkan Google ML Kit berhasil mencocokkan seluruh **14 / 14 bahan (100%)** dalam waktu singkat (~**1.15 detik**). |
 
 ---
 
