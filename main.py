@@ -405,6 +405,14 @@ class UserHistorySummaryResponse(BaseModel):
     user_email: Optional[str] = None
     analysis_id: Optional[int] = None
     analysis_status: Optional[str] = None
+    product_name: Optional[str] = None
+    product_brand: Optional[str] = None
+    product_category: Optional[str] = None
+    summary: Optional[str] = None
+    recommendation: Optional[str] = None
+    extracted_text: Optional[str] = None
+    matched_ingredient_count: Optional[int] = None
+    matched_ingredients: Optional[List[str]] = None
     analysis_created_at: Optional[str] = None
     viewed_at: Optional[str] = None
 
