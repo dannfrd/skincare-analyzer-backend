@@ -1,0 +1,8 @@
+Skenario,Kode Sample,Nama Produk,Engine OCR,Total Bahan Asli (GT),Total Berhasil Dikenali,Total Miss / Terlewat,Total False Positives (Noise),Daftar Bahan MISS (False Negatives),Detail Penyebab MISS,Daftar Token Salah (False Positives)
+Skenario 2 (Multiple Products / Multi Brand),cleanser_panthenol,Facial Wash Scora,MLKIT,32,31,1,1,1,1 [Terpotong (Cut-off) di Bagian Bawah Kemasan],LACTOCOCCUS FERMENT LYSATE
+Skenario 2 (Multiple Products / Multi Brand),exfoliasi_skintific,Exfoliasi Skintific,MLKIT,31,30,1,1,1,1 [Gagal terdeteksi oleh OCR / terpotong],SENEGAL GUM EXTRACT
+Skenario 2 (Multiple Products / Multi Brand),g2g_cleanser,G2G Cleanser,MLKIT,16,16,0,6,,,EXTRACT | CASTOR OIL | HYDROXIDE | GLYCOL | BIGUANIDE | BLUEBERRY REFERS TO VACCINIUM MYRTILLUS FRUIT
+Skenario 2 (Multiple Products / Multi Brand),masker_camille,Masker Camille,MLKIT,24,23,1,1,1,1 [Terpotong (Cut-off) di Bagian Bawah Kemasan],AVENA SATIVA KERNEL MEAL
+Skenario 2 (Multiple Products / Multi Brand),masker_komedo,Masker Hidung Komedo,MLKIT,14,14,0,5,,,CAMELLA SINENSIS (GREEN LEA) | (PARFUM) | DS | KOSARMBI TIMUR | KEC KO8AMBJ
+Skenario 2 (Multiple Products / Multi Brand),sunscreen_emina,Sunscreen Emina,MLKIT,46,46,0,1,,,MIX PACKAGING FROM ROS
+Skenario 2 (Multiple Products / Multi Brand),wardah_face_mist,Wardah Face Mist,MLKIT,16,15,1,2,Polysorbate 20,Polysorbate 20 [Terpotong (Cut-off) di Bagian Bawah Kemasan],EDTA | EXTRACT

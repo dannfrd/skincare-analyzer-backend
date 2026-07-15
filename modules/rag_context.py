@@ -29,17 +29,21 @@ def _clip(value: str, max_len: int = 220) -> str:
     return compact[: max_len - 3].rstrip() + "..."
 
 
-def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
+def get_ingredient_simple_description(ingredient_name: str, client: Any = None) -> Dict[str, Any]:
     """
     Get simple description for a single ingredient from Qdrant.
+    Accepts optional `client` to reuse an open Qdrant connection across multiple lookups.
     """
     if not ingredient_name or not ingredient_name.strip():
         return {}
         
-    client = None
+    should_close = False
     try:
-        from modules.qdrant_client_factory import get_qdrant_client
-        client = get_qdrant_client()
+        if client is None:
+            from modules.qdrant_client_factory import get_qdrant_client
+            client = get_qdrant_client()
+            should_close = True
+            
         if not client.collection_exists(COLLECTION_NAME):
             return {}
             
@@ -121,7 +125,7 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
         print(f"Error querying Qdrant for {ingredient_name}: {e}")
         return {}
     finally:
-        if client is not None:
+        if should_close and client is not None:
             try:
                 client.close()
             except Exception:

@@ -777,9 +777,16 @@ def process_text_analysis(
     
     # 5. Enrich matched ingredients with dataset descriptions
     # Tambahkan deskripsi singkat dari dataset RAG untuk setiap ingredient
+    qdrant_client = None
+    try:
+        from modules.qdrant_client_factory import get_qdrant_client
+        qdrant_client = get_qdrant_client()
+    except Exception as e:
+        print(f"Failed to initialize Qdrant client for enriching ingredients: {e}")
+
     for ingredient in matched_ingredients:
         ingredient_name = ingredient.get("name", "")
-        dataset_info = get_ingredient_simple_description(ingredient_name)
+        dataset_info = get_ingredient_simple_description(ingredient_name, client=qdrant_client)
         
         if dataset_info and dataset_info.get("found_in_dataset"):
             # Tambahkan info dari dataset
@@ -802,6 +809,12 @@ def process_text_analysis(
             ingredient["dataset_sources"] = []
             ingredient["found_in_dataset"] = False
 
+    if qdrant_client is not None:
+        try:
+            qdrant_client.close()
+        except Exception:
+            pass
+
     # 6. Rule-based expert analysis
     expert_report = run_expert_system(matched_ingredients)
     
@@ -822,10 +835,10 @@ def process_text_analysis(
         ai_result_payload = future_ai.result()
         simple_descriptions_map = future_simple.result()
 
-    # Mapped simple descriptions
+    # Mapped simple descriptions (only for ingredients that don't already have one from Qdrant)
     for ing in matched_ingredients:
         name = str(ing.get("name") or ing.get("ocr_token_used") or "").upper().strip()
-        if name in simple_descriptions_map:
+        if name in simple_descriptions_map and not (ing.get("dataset_description") or "").strip():
             ing["dataset_description"] = simple_descriptions_map[name]
 
 

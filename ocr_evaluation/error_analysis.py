@@ -136,7 +136,7 @@ def run_error_analysis(gt_dir: str, results_dir: str, engine: str, output_csv: s
     print("==================================================")
     print(f"[INFO] Ground Truth Dir: {gt_dir}")
     print(f"[INFO] OCR Results Dir: {results_dir}")
-    print(f"[INFO] Engine: {engine.upper()}\n")
+    print(f"[INFO] Target Engine(s): {engine.upper()}\n")
 
     if not os.path.exists(gt_dir) or not os.path.exists(results_dir):
         print("[ERROR] Direktori Ground Truth atau Results tidak ditemukan.")
@@ -152,62 +152,76 @@ def run_error_analysis(gt_dir: str, results_dir: str, engine: str, output_csv: s
     sample_names = sorted(list(sample_names))
     print(f"[INFO] Ditemukan {len(sample_names)} sampel pengujian: {', '.join(sample_names)}\n")
 
-    engine_dir = os.path.join(results_dir, engine)
+    if engine.lower() == "all":
+        engines_to_test = [e for e in ["paddleocr", "mlkit", "chandra", "tesseract"] if os.path.isdir(os.path.join(results_dir, e))]
+        if not engines_to_test:
+            engines_to_test = ["paddleocr"]
+    else:
+        engines_to_test = [e.strip() for e in engine.split(",")]
+
     rows_to_save = []
 
-    for sname in sample_names:
-        brand_name = SAMPLE_BRANDS.get(sname, sname)
-        gt_file = os.path.join(gt_dir, f"{sname}_ingredients.txt")
-        ocr_file = os.path.join(engine_dir, f"{sname}.txt")
-
-        # Baca GT
-        with open(gt_file, "r", encoding="utf-8") as f:
-            gt_text = f.read()
-        gt_ingredients = [item.strip() for item in re.split(r'[,;\n]', gt_text) if item.strip()]
-
-        # Baca OCR
-        if not os.path.exists(ocr_file):
-            print(f"[WARNING] File OCR hasil tidak ditemukan untuk {sname}: {ocr_file}")
+    for eng in engines_to_test:
+        engine_dir = os.path.join(results_dir, eng)
+        if not os.path.exists(engine_dir):
             continue
 
-        with open(ocr_file, "r", encoding="utf-8") as f:
-            ocr_text = f.read()
-        ocr_tokens = clean_text_pipeline(ocr_text, use_ai=False)
+        print("=" * 65)
+        print(f" >>> ANALISIS ENGINE: {eng.upper()}")
+        print("=" * 65)
 
-        # Analisis error
-        analysis = analyze_sample_errors(gt_ingredients, ocr_tokens)
+        for sname in sample_names:
+            brand_name = SAMPLE_BRANDS.get(sname, sname)
+            gt_file = os.path.join(gt_dir, f"{sname}_ingredients.txt")
+            ocr_file = os.path.join(engine_dir, f"{sname}.txt")
 
-        # Cetak ke terminal
-        print(f"[PRODUK] {brand_name} ({sname})")
-        print(f"   [STATISTIK] {analysis['matched_count']}/{analysis['total_gt']} Berhasil Dikenali | "
-              f"Miss: {analysis['missed_count']} bahan | False Positives (Noise): {analysis['fp_count']} token")
-        
-        if analysis["missed_gt_list"]:
-            print("   [MISS] BAHAN YANG MISS / TERLEWAT (False Negatives):")
-            for m_item in analysis["missed_with_reasons"]:
-                print(f"      - {m_item}")
-        else:
-            print("   [SUKSES] SEMUA BAHAN ASLI BERHASIL DIKENALI SECARA SEMPURNA (100% MATCH)!")
+            # Baca GT
+            with open(gt_file, "r", encoding="utf-8") as f:
+                gt_text = f.read()
+            gt_ingredients = [item.strip() for item in re.split(r'[,;\n]', gt_text) if item.strip()]
 
-        if analysis["false_positives_ocr"]:
-            print("   [NOISE] TOKEN SALAH / NOISE OCR (False Positives):")
-            print(f"      -> {', '.join(analysis['false_positives_ocr'][:8])}" + 
-                  ("..." if len(analysis['false_positives_ocr']) > 8 else ""))
-        print("-" * 65)
+            # Baca OCR
+            if not os.path.exists(ocr_file):
+                continue
 
-        rows_to_save.append({
-            "Skenario": skenario_label,
-            "Kode Sample": sname,
-            "Nama Produk": brand_name,
-            "Engine OCR": engine.upper(),
-            "Total Bahan Asli (GT)": analysis["total_gt"],
-            "Total Berhasil Dikenali": analysis["matched_count"],
-            "Total Miss / Terlewat": analysis["missed_count"],
-            "Total False Positives (Noise)": analysis["fp_count"],
-            "Daftar Bahan MISS (False Negatives)": " | ".join(analysis["missed_gt_list"]),
-            "Detail Penyebab MISS": " || ".join(analysis["missed_with_reasons"]),
-            "Daftar Token Salah (False Positives)": " | ".join(analysis["false_positives_ocr"])
-        })
+            with open(ocr_file, "r", encoding="utf-8") as f:
+                ocr_text = f.read()
+            ocr_tokens = clean_text_pipeline(ocr_text, use_ai=False)
+
+            # Analisis error
+            analysis = analyze_sample_errors(gt_ingredients, ocr_tokens)
+
+            # Cetak ke terminal
+            print(f"[PRODUK] {brand_name} ({sname})")
+            print(f"   [STATISTIK] {analysis['matched_count']}/{analysis['total_gt']} Berhasil Dikenali | "
+                  f"Miss: {analysis['missed_count']} bahan | False Positives (Noise): {analysis['fp_count']} token")
+            
+            if analysis["missed_gt_list"]:
+                print("   [MISS] BAHAN YANG MISS / TERLEWAT (False Negatives):")
+                for m_item in analysis["missed_with_reasons"]:
+                    print(f"      - {m_item}")
+            else:
+                print("   [SUKSES] SEMUA BAHAN ASLI BERHASIL DIKENALI SECARA SEMPURNA (100% MATCH)!")
+
+            if analysis["false_positives_ocr"]:
+                print("   [NOISE] TOKEN SALAH / NOISE OCR (False Positives):")
+                print(f"      -> {', '.join(analysis['false_positives_ocr'][:8])}" + 
+                      ("..." if len(analysis['false_positives_ocr']) > 8 else ""))
+            print("-" * 65)
+
+            rows_to_save.append({
+                "Skenario": skenario_label,
+                "Kode Sample": sname,
+                "Nama Produk": brand_name,
+                "Engine OCR": eng.upper(),
+                "Total Bahan Asli (GT)": analysis["total_gt"],
+                "Total Berhasil Dikenali": analysis["matched_count"],
+                "Total Miss / Terlewat": analysis["missed_count"],
+                "Total False Positives (Noise)": analysis["fp_count"],
+                "Daftar Bahan MISS (False Negatives)": " | ".join(analysis["missed_gt_list"]),
+                "Detail Penyebab MISS": " || ".join(analysis["missed_with_reasons"]),
+                "Daftar Token Salah (False Positives)": " | ".join(analysis["false_positives_ocr"])
+            })
 
     # Simpan CSV
     if rows_to_save:
@@ -223,7 +237,7 @@ def run_error_analysis(gt_dir: str, results_dir: str, engine: str, output_csv: s
 def main():
     parser = argparse.ArgumentParser(description="Analisis Error dan Miss Bahan Skincare OCR")
     parser.add_argument("--skenario", type=int, choices=[1, 2], default=2, help="Pilih Skenario 1 (Single) atau 2 (Multiple)")
-    parser.add_argument("--engine", type=str, default="paddleocr", help="Engine OCR (default: paddleocr)")
+    parser.add_argument("--engine", type=str, default="all", help="Engine OCR (default: all)")
     parser.add_argument("--gt_dir", type=str, default="", help="Override path Ground Truth directory")
     parser.add_argument("--results_dir", type=str, default="", help="Override path OCR Results directory")
     parser.add_argument("--output_csv", type=str, default="", help="Override path output CSV")

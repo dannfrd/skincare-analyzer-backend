@@ -374,7 +374,9 @@ def generate_simple_descriptions(matched_ingredients: List[Dict[str, Any]]) -> D
         name = ing.get("name") or ing.get("ocr_token_used") or ""
         if not name:
             continue
-        desc = ing.get("dataset_description") or ing.get("description") or ""
+        desc = ing.get("dataset_description") or ""
+        if desc.strip():
+            continue
         funcs = ing.get("dataset_functions") or ing.get("function") or ""
         ingredient_list.append(f"- {name}: Data({desc}) Fungsi({funcs})")
 
@@ -428,7 +430,7 @@ FORMAT JAWABAN WAJIB JSON VALID (TANPA teks lain):
     return {}
 
 
-def extract_ingredients_from_ocr(raw_text: str) -> List[str]:
+def extract_ingredients_from_ocr(raw_text: str, timeout_seconds: int = 12) -> List[str]:
     """
     Uses Gemini AI to intelligently extract ONLY the ingredients list from messy OCR text.
     Ignores marketing fluff, directions, and warnings.
@@ -491,6 +493,6 @@ FORMAT JAWABAN WAJIB JSON ARRAY BERISI STRING (TANPA teks lain di luar JSON):
 
     request_thread = threading.Thread(target=run_request, daemon=True)
     request_thread.start()
-    request_thread.join(timeout=GEMINI_TIMEOUT_SECONDS)
+    request_thread.join(timeout=timeout_seconds)
 
     return result_holder["value"]

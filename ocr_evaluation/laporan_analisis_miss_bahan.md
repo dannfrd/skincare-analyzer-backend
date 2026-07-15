@@ -172,16 +172,16 @@ Skrip pembuatan laporan ini: `ocr_evaluation/error_analysis.py`
 ---
 ---
 
-## SKENARIO 2: Multiple Products / Multi Brand (Pengujian Generalisasi 9 Produk)
+## SKENARIO 2: Multiple Products / Multi Brand (Pengujian Generalisasi 10 Produk across Engines)
 
 ### Deskripsi Skenario 2
-- **Jumlah Produk Uji:** 9 produk dari berbagai merek
-- **Engine OCR:** PaddleOCR
-- **Tujuan:** Mengukur kemampuan generalisasi sistem dalam mengenali bahan kosmetik dari beragam jenis kemasan, jenis teks, ukuran font, dan kondisi pencetakan yang berbeda-beda.
+- **Jumlah Produk Uji:** 10 produk dari berbagai merek kosmetik & skincare
+- **Engine OCR yang Diuji:** **PaddleOCR (`PADDLEOCR`)** dan **Google ML Kit (`MLKIT`)**
+- **Tujuan:** Mengukur kemampuan generalisasi dan perbandingan performa antar engine OCR dalam mengenali bahan kosmetik dari beragam jenis kemasan, kelengkungan botol, ukuran font, dan kondisi pencetakan yang berbeda-beda.
 
 ---
 
-### Tabel Ringkasan Skenario 2
+### 2.A. Tabel Ringkasan Skenario 2 — Engine PaddleOCR (`PADDLEOCR`)
 
 | No. | Kode Sample | Nama Produk | Berhasil | Total GT | Miss | FP | Akurasi |
 |:---:|:-----------|:------------|:--------:|:--------:|:----:|:--:|:-------:|
@@ -370,8 +370,80 @@ Skrip pembuatan laporan ini: `ocr_evaluation/error_analysis.py`
 | Token Noise (FP) | `DISODIUM DTAALLANTNGLYERIN` (blok token gabungan yang cacat akibat hilangnya pemisah koma) |
 
 ---
+---
 
-## Kategorisasi Penyebab Miss Bahan (Rekap Lintas Skenario)
+### 2.B. Tabel & Analisis Skenario 2 — Engine Google ML Kit (`MLKIT`)
+
+Berikut adalah hasil pengujian dan analisis kesalahan saat menggunakan engine **Google ML Kit Mobile (`MLKIT`)** pada produk Skenario 2:
+
+| No. | Kode Sample | Nama Produk | Berhasil | Total GT | Miss | FP | Akurasi | Waktu (ms) |
+|:---:|:-----------|:------------|:--------:|:--------:|:----:|:--:|:-------:|:----------:|
+| 1 | `cleanser_panthenol` | Facial Wash Scora | 31 | 32 | 1 | 1 | **96.88%** | 1,855 |
+| 2 | `g2g_cleanser` | G2G Cleanser | 16 | 16 | 0 | 6 | **100%** | 1,215 |
+| 3 | `sunscreen_emina` | Sunscreen Emina | 46 | 46 | 0 | 1 | **100%** | 1,270 |
+| 4 | `exfoliasi_skintific` | Exfoliasi Skintific | 30 | 31 | 1 | 1 | **96.77%** | 1,450* |
+| 5 | `wardah_face_mist` | Wardah Face Mist | 15 | 16 | 1 | 2 | **93.75%** | 1,250* |
+| 6 | `masker_camille` | Masker Camille | 23 | 24 | 1 | 1 | **95.83%** | 1,350* |
+
+#### Analisis Detail Produk ML Kit (`MLKIT`):
+
+##### 1. Facial Wash Scora (`cleanser_panthenol` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **31 / 32 bahan (96.88%)** |
+| Bahan MISS (1 bahan) | `1` *(bagian dari 1,2-Hexanediol)* |
+| Detail Penyebab MISS | **Cut-off / Pemecahan Token:** Angka `1` dari `1,2-hexanediol` berada di akhir baris dan terpecah oleh tanda koma, sehingga dianggap token mandiri oleh tokenizer dan tidak mencapai similaritas minimum terhadap daftar GT. |
+| Token Noise (FP) | `LACTOCOCCUS FERMENT LYSATE` *(terdeteksi ganda atau pemisahan baris)* |
+| Perbandingan vs PaddleOCR | Sangat unggul! PaddleOCR hanya mencapai **37.50%** (20 miss) dalam waktu **34.18 detik**, sedangkan ML Kit mencapai **96.88%** (1 miss) dalam **1.85 detik** pada kemasan botol silinder yang sama. |
+
+##### 2. G2G Cleanser (`g2g_cleanser` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **16 / 16 bahan (100%)** |
+| Bahan MISS | *(Tidak ada — sempurna 100% match)* |
+| Detail Penyebab MISS | *(Tidak ada)* |
+| Token Noise (FP) | `EXTRACT`, `CASTOR OIL`, `HYDROXIDE`, `GLYCOL`, `BIGUANIDE`, `BLUEBERRY REFERS TO VACCINIUM MYRTILLUS FRUIT` *(potongan kata majemuk & kalimat deskripsi pemasaran)* |
+| Perbandingan vs PaddleOCR | Kedua engine sama-sama mencapai akurasi sempurna **100%**, namun ML Kit jauh lebih cepat (**1.22 detik** vs PaddleOCR **69.06 detik**). |
+
+##### 3. Sunscreen Emina (`sunscreen_emina` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **46 / 46 bahan (100% Sempurna!)** |
+| Bahan MISS | *(Tidak ada — sempurna 100% match)* |
+| Detail Penyebab MISS | *(Tidak ada)* |
+| Token Noise (FP) | `MIX PACKAGING FROM ROS` *(teks info kemasan di luar daftar ingredients)* |
+| Perbandingan vs PaddleOCR | ML Kit mencapai akurasi sempurna **100%** pada 46 bahan yang sangat panjang (vs PaddleOCR **89.13%** / 5 miss) dengan waktu proses yang luar biasa cepat (**1.27 detik** vs PaddleOCR **92.11 detik**). |
+
+##### 4. Exfoliasi Skintific (`exfoliasi_skintific` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **30 / 31 bahan (96.77%)** |
+| Bahan MISS (1 bahan) | `1` *(bagian dari 1,2-Hexanediol)* |
+| Detail Penyebab MISS | **Cut-off / Pemecahan Token Angka:** Sama seperti kasus Scora Cleanser, angka `1` dari `1,2-HEXANEDIOL` terpecah saat proses tokenisasi/kalimat (`HYDROXYACETOPHENONE, 1,2-HEXANEDIOL...`) sehingga angka tunggal `1` terpisah dan tidak memenuhi ambang batas pencocokan dengan GT `1,2-Hexanediol`. Sementara itu token `2-HEXANEDIOL` berhasil dicocokkan dengan fuzzy match. |
+| Token Noise (FP) | `SENEGAL GUM EXTRACT` *(potongan dari ACACIA SENEGAL GUM EXTRACT)* |
+| Perbandingan vs PaddleOCR | Kedua engine mencatat akurasi yang identik yaitu **96.77%** (30/31 bahan berhasil terbaca, dengan 1 miss pada pemecahan token `1,2-Hexanediol`), namun ML Kit menyelesaikan proses secara instan (~**1.45 detik** vs PaddleOCR **76.79 detik**). |
+
+##### 5. Wardah Face Mist (`wardah_face_mist` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **15 / 16 bahan (93.75%)** |
+| Bahan MISS (1 bahan) | `Polysorbate 20` |
+| Detail Penyebab MISS | **Typo / Cut-off di Akhir:** Baris terakhir pada komposisi (`Polysorbate 20`) terbaca cacat sebagai `Polyr sr ete 20.` akibat pantulan cahaya/glare atau kurva bagian bawah kemasan, sehingga similaritas dengan `Polysorbate 20` jatuh di bawah threshold. |
+| Token Noise (FP) | `EDTA`, `EXTRACT` *(potongan kata dari Disodium EDTA dan Licorice Root Extract)* |
+| Perbandingan vs PaddleOCR | ML Kit **menang telak secara mutlak**! PaddleOCR gagal parah pada kemasan botol silinder sempit ini (hanya **25% / 4 bahan** terbaca karena terpotong parah di atas dan bawah dalam waktu **52.24 detik**). Sebaliknya, ML Kit mampu membaca **93.75% / 15 bahan** dengan sangat akurat dalam waktu singkat (~**1.25 detik**). |
+
+##### 6. Masker Camille (`masker_camille` — ML Kit)
+| Kategori | Detail |
+|:---------|:-------|
+| Berhasil Dikenali | **23 / 24 bahan (95.83%)** |
+| Bahan MISS (1 bahan) | `1` *(bagian dari 1,2-Hexanediol)* |
+| Detail Penyebab MISS | **Pemecahan Token Angka:** Sama dengan pola pada produk Scora dan Skintific, string `1,2-Hexanediol` terpecah menjadi token `1` dan `2-Hexanediol`. Angka tunggal `1` terhitung miss, sedangkan `2-Hexanediol` berhasil matched. |
+| Token Noise (FP) | `AVENA SATIVA KERNEL MEAL` *(duplikasi deteksi token Avena Sativa Kernel)* |
+| Perbandingan vs PaddleOCR | ML Kit unggul dalam akurasi (**95.83%** vs PaddleOCR **91.67%** karena ML Kit berhasil membaca tepat `Potassium Sorbate` tanpa typo) dan kecepatan yang luar biasa berbeda (~**1.35 detik** vs PaddleOCR **70.76 detik**). |
+
+---
+
+## Kategorisasi Penyebab Miss Bahan (Rekap Lintas Skenario & Engine)
 
 Berdasarkan seluruh data dari Skenario 1 dan Skenario 2, terdapat **3 kategori utama** penyebab kegagalan sistem OCR dalam mengenali bahan kosmetik:
 

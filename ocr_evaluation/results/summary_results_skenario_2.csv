@@ -1,11 +1,18 @@
 Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),Exact Match F1 (%),Fuzzy Match Precision (%),Fuzzy Match Recall (%),Fuzzy Match F1 (%),Execution Time (ms),Total GT Ingredients,Total OCR Tokens Detected
+Facial Wash Scora,mlkit,4.68%,7.94%,84.38%,84.38%,84.38%,100.00%,96.88%,98.41%,1855,32,32
 Facial Wash Scora,paddleocr,19.87%,68.25%,38.46%,15.62%,22.22%,92.31%,37.50%,53.33%,34182,32,13
+Exfoliasi Skintific,mlkit,5.52%,9.52%,80.65%,80.65%,80.65%,100.00%,96.77%,98.36%,1450,31,31
 Exfoliasi Skintific,paddleocr,6.03%,47.62%,86.67%,83.87%,85.25%,100.00%,96.77%,98.36%,76786,31,30
 Facial Wash G2G,paddleocr,42.79%,84.93%,88.24%,41.67%,56.60%,100.00%,47.22%,64.15%,60107,36,17
 Facial Wash Kahf,paddleocr,52.15%,93.02%,61.90%,28.26%,38.81%,100.00%,45.65%,62.69%,65385,46,21
+G2G Cleanser,mlkit,56.97%,66.96%,40.91%,56.25%,47.37%,95.45%,100.00%,97.67%,1215,16,22
 G2G Cleanser,paddleocr,12.48%,50.89%,70.59%,75.00%,72.73%,100.00%,100.00%,100.00%,69062,16,17
 Lipcare Madame Gie,paddleocr,5.43%,35.48%,60.00%,46.15%,52.17%,100.00%,76.92%,86.96%,60691,13,10
+Masker Camille,mlkit,3.48%,16.33%,70.83%,70.83%,70.83%,100.00%,91.67%,95.65%,1350,24,24
 Masker Camille,paddleocr,8.21%,48.98%,86.36%,79.17%,82.61%,100.00%,91.67%,95.65%,70758,24,22
+Masker Hidung Komedo,mlkit,111.96%,165.71%,21.05%,28.57%,24.24%,73.68%,92.86%,82.17%,1150,14,19
 Masker Hidung Komedo,paddleocr,49.17%,77.14%,12.50%,7.14%,9.09%,87.50%,50.00%,63.64%,70969,14,8
+Sunscreen Emina,mlkit,7.40%,8.00%,85.11%,86.96%,86.02%,97.87%,100.00%,98.92%,1270,46,47
 Sunscreen Emina,paddleocr,12.44%,52.00%,65.85%,58.70%,62.07%,100.00%,89.13%,94.25%,92111,46,41
+Wardah Face Mist,mlkit,67.16%,114.81%,70.59%,75.00%,72.73%,100.00%,93.75%,96.77%,1250,16,17
 Wardah Face Mist,paddleocr,29.85%,92.59%,0.00%,0.00%,0.00%,80.00%,25.00%,38.10%,52244,16,5

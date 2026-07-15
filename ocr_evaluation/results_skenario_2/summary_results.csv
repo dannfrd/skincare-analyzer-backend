@@ -1,0 +1,2 @@
+Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),Exact Match F1 (%),Fuzzy Match Precision (%),Fuzzy Match Recall (%),Fuzzy Match F1 (%),Execution Time (ms),Total GT Ingredients,Total OCR Tokens Detected
+cleanser_panthenol (cleanser_panthenol),mlkit,4.68%,7.94%,84.38%,84.38%,84.38%,100.00%,96.88%,98.41%,1855,32,32

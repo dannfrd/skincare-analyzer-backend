@@ -155,7 +155,7 @@ class TextCleaner:
         if use_ai:
             try:
                 from modules.gemini_ai import extract_ingredients_from_ocr
-                ai_ingredients = extract_ingredients_from_ocr(raw_text)
+                ai_ingredients = extract_ingredients_from_ocr(raw_text, timeout_seconds=10)
                 if ai_ingredients and len(ai_ingredients) > 0:
                     logger.info(
                         "Successfully extracted %s ingredients using AI.",
