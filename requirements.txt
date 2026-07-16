@@ -55,5 +55,6 @@ qdrant-client[fastembed]==1.9.1
 fastembed
 sentence-transformers
 --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
-paddlepaddle==2.6.1
+paddlepaddle==2.6.2
 paddleocr==2.8.1
+
