@@ -1,5 +1,4 @@
 import os
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
@@ -921,31 +920,42 @@ def get_recommendations(
         description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
     ),
     category: Optional[str] = Query(default=None, description="Category of the scanned product"),
+    skin_type: Optional[str] = Query(default=None, description="Skin type of the user"),
+    skin_concern: Optional[str] = Query(default=None, description="Primary skin concern of the user"),
 ):
     """
-    Return top-N similar products from the INCIDecoder dataset.
-
-    Strategy options (mode param):
-    - 'auto'     : Qdrant semantic search first, falls back to string-overlap
-                   when fewer than 3 semantic results are found.
-    - 'semantic' : Pure Qdrant vector similarity (requires Qdrant data to be
-                   set up via qdrant_setup.py).
-    - 'overlap'  : Classic substring-overlap (fast, no Qdrant required).
-
-    Response fields per product:
-      name, brand, category_tags, url, similarity_pct, matched_ingredients,
-      match_reason (e.g. "Fungsi serupa: moisturizer, humectant")
+    Return top-N similar products from the INCIDecoder dataset with personalized matching and compatibility checks.
     """
     ingredient_names = [i.strip() for i in ingredients.split(",") if i.strip()]
     if not ingredient_names:
-        return {"recommendations": [], "mode_used": mode}
+        return {
+            "recommendations": [],
+            "compatibility_tips": {"conflicts": [], "synergies": []},
+            "routine_tip": "",
+            "mode_used": mode
+        }
 
     valid_modes = {"auto", "semantic", "overlap"}
     if mode not in valid_modes:
         mode = "auto"
 
-    result = _recommender_get(ingredient_names, limit=limit, mode=mode, category=category)
-    return {"recommendations": result, "mode_used": mode}
+    result = _recommender_get(
+        ingredient_names,
+        limit=limit,
+        mode=mode,
+        category=category,
+        skin_type=skin_type,
+        skin_concern=skin_concern
+    )
+    
+    return {
+        "recommendations": result.get("recommendations", []),
+        "compatibility_tips": result.get("compatibility_tips", {"conflicts": [], "synergies": []}),
+        "routine_tip": result.get("routine_tip", ""),
+        "mode_used": mode,
+        "skin_type_used": skin_type,
+        "skin_concern_used": skin_concern
+    }
 
 
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
