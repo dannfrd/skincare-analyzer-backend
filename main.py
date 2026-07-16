@@ -55,9 +55,14 @@ async def startup_event():
     print("      WARMING UP MODELS (PRE-LOADING AI)      ")
     print("="*50)
     try:
-        from modules.embedding_utils import _get_model
-        print("Pre-loading SentenceTransformer (embeddings)...")
-        _get_model()
+        hf_token = os.getenv("HF_TOKEN") or os.getenv("HF_API_KEY")
+        if hf_token:
+            print("HF_TOKEN/HF_API_KEY ditemukan. Menggunakan Hugging Face Serverless API.")
+            print("Menghindari pre-load model local SentenceTransformer untuk menghemat RAM.")
+        else:
+            from modules.embedding_utils import _get_model
+            print("Pre-loading SentenceTransformer (embeddings) secara lokal...")
+            _get_model()
     except Exception as e:
         print(f"Error pre-loading SentenceTransformer: {e}")
 
