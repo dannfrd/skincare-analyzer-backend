@@ -58,110 +58,191 @@ class OCRProcessor:
             logger.error(f"OCR processing failed: {str(e)}")
             raise RuntimeError(f"Failed to extract text using OCR: {str(e)}")
 
-# Helper classes and functions for PaddleOCR integration
-class PaddleOCRProcessor:
-    _ocr_instance = None
 
-    @classmethod
-    def get_instance(cls):
-        if cls._ocr_instance is None:
-            logger.info("Initializing PaddleOCR instance...")
-            # Setup environment variables to avoid PIR and connection issues
-            os.environ["FLAGS_use_mkldnn"] = "0"
-            os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
-            os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-            
-            try:
-                from paddleocr import PaddleOCR
-                cls._ocr_instance = PaddleOCR(
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=True,
-                    text_det_thresh=0.2,
-                    text_det_box_thresh=0.5,
-                    text_det_unclip_ratio=1.8,
-                    lang='en',
-                    ocr_version='PP-OCRv4',
-                    cpu_threads=2,
-                    enable_mkldnn=False
-                )
-            except Exception as e:
-                logger.error(f"Failed to import/initialize PaddleOCR: {e}")
-                raise RuntimeError(f"PaddleOCR initialization failed: {e}")
-        return cls._ocr_instance
+# Import processors dari service modular PaddleOCR
+try:
+    from modules.paddleocr_service import PaddleOCRVLAPIProcessor, PaddleOCRLocalProcessor
+except ImportError as e:
+    logger.warning(f"Gagal mengimpor modul paddleocr_service: {e}")
+    PaddleOCRVLAPIProcessor = None
+    PaddleOCRLocalProcessor = None
 
-    def extract_text(self, image_path_or_array) -> str:
-        ocr = self.get_instance()
-        try:
-            lines = []
-            # Try PaddleOCR 3.x / PP-OCRv4 predict method first
-            if hasattr(ocr, 'predict') and callable(getattr(ocr, 'predict')):
-                try:
-                    result = ocr.predict(image_path_or_array)
-                    if result:
-                        for res in result:
-                            data = res.json if hasattr(res, 'json') else (res if isinstance(res, dict) else None)
-                            if isinstance(data, dict):
-                                rec_texts = data.get("rec_texts")
-                                dt_polys = data.get("dt_polys")
-                                if not rec_texts and "res" in data and isinstance(data["res"], dict):
-                                    rec_texts = data["res"].get("rec_texts")
-                                    dt_polys = data["res"].get("dt_polys")
-                                
-                                if rec_texts:
-                                    if dt_polys and len(dt_polys) == len(rec_texts):
-                                        try:
-                                            paired = sorted(zip(dt_polys, rec_texts), key=lambda x: x[0][0][1] if x[0] and len(x[0]) > 0 else 0)
-                                            lines.extend([str(t[1]) for t in paired])
-                                        except Exception:
-                                            lines.extend([str(t) for t in rec_texts])
-                                    else:
-                                        lines.extend([str(t) for t in rec_texts])
-                    if lines:
-                        return "\n".join(lines)
-                except Exception as e_pred:
-                    logger.debug(f"ocr.predict failed or not applicable: {e_pred}, falling back to ocr.ocr")
+# Backward compatibility alias
+PaddleOCRProcessor = PaddleOCRLocalProcessor
 
-            # Fallback to standard ocr() method without cls=False
-            result = ocr.ocr(image_path_or_array)
-            if result:
-                for res in result:
-                    if res:
-                        try:
-                            res_sorted = sorted(res, key=lambda r: r[0][0][1] if r and len(r) > 0 and isinstance(r[0], (list, tuple)) else 0)
-                        except Exception:
-                            res_sorted = res
-                        for line in res_sorted:
-                            if line and len(line) > 1 and isinstance(line[1], (tuple, list)):
-                                text = line[1][0]
-                                if text:
-                                    lines.append(str(text))
-            return "\n".join(lines)
-        except Exception as e:
-            logger.error(f"PaddleOCR processing failed: {str(e)}")
-            raise RuntimeError(f"Failed to extract text using PaddleOCR: {str(e)}")
 
-# Helper functions
+def _is_weak_ocr(text: str) -> bool:
+    """
+    Menilai apakah teks hasil OCR terlalu lemah, terpotong, atau tidak memiliki substansi bahan (garbage text).
+    Contoh: 'atoyo J P O' -> lemah/garbage.
+    """
+    cleaned = text.strip()
+    if not cleaned or len(cleaned) < 35:
+        return True
+    words = [w for w in cleaned.split() if len(w) >= 2 and any(c.isalpha() for c in w)]
+    if len(words) < 5:
+        return True
+    return False
+
+def _pick_best_ocr_result(candidates: list) -> str:
+    """
+    Memilih teks hasil OCR terbaik dari beberapa kandidat engine berdasarkan skor validitas kata & karakter alfanumerik.
+    """
+    best_text = ""
+    best_score = -1
+    for text in candidates:
+        if not text:
+            continue
+        cleaned = text.strip()
+        words = [w for w in cleaned.split() if len(w) >= 2 and any(c.isalpha() for c in w)]
+        alpha_count = sum(1 for c in cleaned if c.isalpha())
+        score = len(words) * 10 + alpha_count
+        if score > best_score:
+            best_score = score
+            best_text = text
+    return best_text
+
+
 def extract_text_from_image(image: np.ndarray, psm_mode: int = 6) -> str:
-    """Helper function to run the OCR extraction on a numpy array."""
+    """
+    Helper function untuk menjalankan ekstraksi OCR pada numpy array.
+    Menjamin kemurnian engine (MURNI PaddleOCR jika dipilih 'paddleocr' / 'paddleocr_vl',
+    atau MURNI Tesseract jika dipilih 'tesseract').
+    """
     engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
-    if engine == "paddleocr":
-        processor = PaddleOCRProcessor()
-        return processor.extract_text(image)
-    else:
+    fallback_enabled = os.getenv("OCR_FALLBACK_ENABLED", "true").lower() == "true"
+    candidates = []
+
+    # 1. PURE PADDLEOCR-VL (Cloud AI Studio)
+    if engine in ("paddleocr_vl", "paddleocr_api", "paddleocr_cloud"):
+        if PaddleOCRVLAPIProcessor is not None:
+            try:
+                processor = PaddleOCRVLAPIProcessor()
+                res_vl = processor.extract_text(image)
+                if res_vl and not _is_weak_ocr(res_vl):
+                    return res_vl
+                if res_vl:
+                    candidates.append(res_vl)
+                    logger.warning(f"PaddleOCR-VL API menghasilkan teks lemah ({len(res_vl)} kar).")
+            except Exception as e:
+                logger.warning(f"PaddleOCR-VL API error ({e}).")
+                if not fallback_enabled:
+                    raise
+        # Jika fallback aktif untuk paddleocr_vl, hanya fallback ke MURNI PaddleOCR Local (PP-OCRv4), BUKAN Tesseract!
+        if PaddleOCRLocalProcessor is not None and fallback_enabled:
+            try:
+                logger.info("Mencoba fallback MURNI ke PaddleOCR Local (PP-OCRv4)...")
+                processor_loc = PaddleOCRLocalProcessor()
+                res_loc = processor_loc.extract_text(image)
+                if res_loc:
+                    candidates.append(res_loc)
+            except Exception as e_loc:
+                logger.debug(f"PaddleOCR Local fallback error: {e_loc}")
+        if candidates:
+            return _pick_best_ocr_result(candidates)
+        raise RuntimeError("PaddleOCR-VL gagal menghasilkan teks valid.")
+
+    # 2. PURE PADDLEOCR LOKAL (PP-OCRv4 MURNI DI PERANGKAT, TANPA CAMPUR TANGAN TESSERACT)
+    if engine in ("paddleocr", "paddleocr_local"):
+        if PaddleOCRLocalProcessor is not None:
+            try:
+                processor = PaddleOCRLocalProcessor()
+                return processor.extract_text(image)
+            except Exception as e:
+                logger.error(f"PaddleOCR Local processing failed: {e}")
+                raise RuntimeError(f"PaddleOCR Local (PP-OCRv4) gagal: {e}")
+        else:
+            raise RuntimeError("PaddleOCRLocalProcessor tidak tersedia atau belum terinstal.")
+
+    # 3. PURE TESSERACT OCR
+    if engine == "tesseract":
         ocr = OCRProcessor(psm_mode=psm_mode)
         return ocr.extract_text(image)
 
+    # 4. HYBRID ENGINE (Kombinasi PaddleOCR + Tesseract)
+    if PaddleOCRLocalProcessor is not None:
+        try:
+            candidates.append(PaddleOCRLocalProcessor().extract_text(image))
+        except Exception:
+            pass
+    try:
+        candidates.append(OCRProcessor(psm_mode=psm_mode).extract_text(image))
+    except Exception:
+        pass
+    if candidates:
+        return _pick_best_ocr_result(candidates)
+    raise RuntimeError("Semua engine OCR tidak menghasilkan teks yang valid.")
+
+
 def extract_text_from_image_path(image_path: str, psm_mode: int = 6) -> str:
-    """Helper function to run the OCR extraction from a file path."""
+    """
+    Helper function untuk menjalankan ekstraksi OCR dari file path.
+    Menjamin kemurnian engine (MURNI PaddleOCR jika dipilih 'paddleocr' / 'paddleocr_vl',
+    atau MURNI Tesseract jika dipilih 'tesseract') sesuai kebutuhan riset TA.
+    """
     engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
-    if engine == "paddleocr":
-        processor = PaddleOCRProcessor()
-        return processor.extract_text(image_path)
-    else:
-        # Standard Tesseract needs numpy array from preprocess_image
+    fallback_enabled = os.getenv("OCR_FALLBACK_ENABLED", "true").lower() == "true"
+    candidates = []
+
+    # 1. PURE PADDLEOCR-VL (Cloud AI Studio)
+    if engine in ("paddleocr_vl", "paddleocr_api", "paddleocr_cloud"):
+        if PaddleOCRVLAPIProcessor is not None:
+            try:
+                processor = PaddleOCRVLAPIProcessor()
+                res_vl = processor.extract_text(image_path)
+                if res_vl and not _is_weak_ocr(res_vl):
+                    return res_vl
+                if res_vl:
+                    candidates.append(res_vl)
+                    logger.warning(f"PaddleOCR-VL API menghasilkan teks lemah ({len(res_vl)} kar) pada {image_path}.")
+            except Exception as e:
+                logger.warning(f"PaddleOCR-VL API error ({e}) pada {image_path}.")
+                if not fallback_enabled:
+                    raise
+        # Jika fallback aktif untuk paddleocr_vl, hanya fallback ke MURNI PaddleOCR Local (PP-OCRv4), BUKAN Tesseract!
+        if PaddleOCRLocalProcessor is not None and fallback_enabled:
+            try:
+                logger.info("Mencoba fallback MURNI ke PaddleOCR Local (PP-OCRv4)...")
+                processor_loc = PaddleOCRLocalProcessor()
+                res_loc = processor_loc.extract_text(image_path)
+                if res_loc:
+                    candidates.append(res_loc)
+            except Exception as e_loc:
+                logger.debug(f"PaddleOCR Local fallback error: {e_loc}")
+        if candidates:
+            return _pick_best_ocr_result(candidates)
+        raise RuntimeError(f"PaddleOCR-VL gagal menghasilkan teks valid untuk {image_path}.")
+
+    # 2. PURE PADDLEOCR LOKAL (PP-OCRv4 MURNI DI PERANGKAT, TANPA CAMPUR TANGAN TESSERACT)
+    if engine in ("paddleocr", "paddleocr_local"):
+        if PaddleOCRLocalProcessor is not None:
+            try:
+                processor = PaddleOCRLocalProcessor()
+                return processor.extract_text(image_path)
+            except Exception as e:
+                logger.error(f"PaddleOCR Local processing failed on {image_path}: {e}")
+                raise RuntimeError(f"PaddleOCR Local (PP-OCRv4) gagal: {e}")
+        else:
+            raise RuntimeError("PaddleOCRLocalProcessor tidak tersedia atau belum terinstal.")
+
+    # 3. PURE TESSERACT OCR
+    if engine == "tesseract":
         from modules.preprocessing import preprocess_image
         processed_image = preprocess_image(image_path)
         ocr = OCRProcessor(psm_mode=psm_mode)
         return ocr.extract_text(processed_image)
 
+    # 4. HYBRID ENGINE (Kombinasi PaddleOCR + Tesseract)
+    if PaddleOCRLocalProcessor is not None:
+        try:
+            candidates.append(PaddleOCRLocalProcessor().extract_text(image_path))
+        except Exception:
+            pass
+    try:
+        from modules.preprocessing import preprocess_image
+        candidates.append(OCRProcessor(psm_mode=psm_mode).extract_text(preprocess_image(image_path)))
+    except Exception:
+        pass
+    if candidates:
+        return _pick_best_ocr_result(candidates)
+    raise RuntimeError("Semua engine OCR tidak menghasilkan teks yang valid.")

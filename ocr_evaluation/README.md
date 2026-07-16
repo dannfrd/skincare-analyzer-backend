@@ -23,8 +23,33 @@ ocr_evaluation/
     │   └── [NamaSampel]_metadata.json     <-- [Opsional] Info waktu pemrosesan
     ├── tesseract/          <-- Hasil pembacaan OCR Tesseract murni
     ├── mlkit/              <-- Hasil pembacaan OCR MLKit murni
-    ├── paddleocr/          <-- Hasil pembacaan OCR PaddleOCR
+    ├── paddleocr/          <-- Hasil pembacaan OCR PaddleOCR Lokal (PP-OCRv4)
+    ├── paddleocr_vl/       <-- Hasil pembacaan OCR PaddleOCR-VL-1.6 Cloud API (Vision-Language)
     └── summary_results.csv <-- REKAPITULASI HASIL (Otomatis dibuat oleh skrip)
+```
+
+---
+
+## 🚀 Skrip Runner Otomatis untuk Pengujian Batch
+
+Untuk menghemat waktu pengujian, Anda dapat menjalankan OCR batch secara otomatis terhadap semua foto kemasan di folder `dataset/images_raw/`:
+
+### 1. Runner PaddleOCR-VL-1.6 Cloud API (Vision-Language - Paling Akurat)
+Menggunakan model AI Studio API v2 (`PaddleOCR-VL-1.6`) untuk mengekstrak teks markdown, struktur tabel, dan daftar bahan dengan akurasi sangat tinggi:
+```bash
+python ocr_evaluation/run_paddleocr_vl_api.py
+```
+*(Opsional: tambahkan flag `--save_layout` untuk menyimpan dokumen markdown beserta potongan gambar deteksi tabel/potongan layout ke folder `results/paddleocr_vl/`)*.
+
+### 2. Runner PaddleOCR Lokal (PP-OCRv4 dengan Spatial Line Clustering)
+Menjalankan pemrosesan murni di perangkat CPU dengan algoritma pengelompokan baris spasial (*spatial line clustering*) agar urutan pembacaan tabel/kolom akurat:
+```bash
+python ocr_evaluation/run_paddleocr_local.py
+```
+
+### 3. Runner Tesseract Lokal
+```bash
+python ocr_evaluation/run_tesseract_local.py
 ```
 
 ---

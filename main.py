@@ -1,3 +1,8 @@
+import os
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -58,15 +63,17 @@ async def startup_event():
         print(f"Error pre-loading SentenceTransformer: {e}")
 
     engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
-    if engine == "paddleocr":
+    if engine in ("paddleocr_vl", "paddleocr_api", "paddleocr_cloud"):
+        print(f"PaddleOCR-VL Cloud API aktif (Model: {os.getenv('PADDLE_OCR_MODEL', 'PaddleOCR-VL-1.6')}).")
+    elif engine in ("paddleocr", "paddleocr_local"):
         try:
-            from modules.ocr import PaddleOCRProcessor
-            print("Pre-loading PaddleOCR engine...")
-            PaddleOCRProcessor.get_instance()
+            from modules.paddleocr_service import PaddleOCRLocalProcessor
+            print("Pre-loading PaddleOCR Local (PP-OCRv4) engine...")
+            PaddleOCRLocalProcessor.get_instance()
         except Exception as e:
-            print(f"Error pre-loading PaddleOCR: {e}")
+            print(f"Error pre-loading PaddleOCR Local: {e}")
     else:
-        print("Tesseract OCR murni aktif (tidak perlu pre-load model di memori).")
+        print("Tesseract OCR aktif (atau fallback default).")
     print("="*50 + "\n")
 
 
@@ -1555,3 +1562,9 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
             result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
             
         return {"items": result}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("Starting FastAPI Backend Server via Uvicorn (Port 8000)...")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

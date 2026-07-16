@@ -192,7 +192,7 @@ def main():
     gt_dir = os.path.join(dataset_dir, "ground_truth")
     results_dir = os.path.join(current_dir, "results")
     output_csv = None
-    engines = ["chandra", "tesseract", "mlkit", "paddleocr"]
+    engines = ["chandra", "tesseract", "mlkit", "paddleocr", "paddleocr_vl"]
     
     product_name = None
     skenario = 1
