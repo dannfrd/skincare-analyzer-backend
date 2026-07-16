@@ -53,7 +53,8 @@ def _get_embedding_from_api(texts: List[str]) -> List[List[float]] | None:
 def _get_model():
     global _model
     if _model is None:
-        local_path = "c:/Kuliah Ardan/TA/Sistem/skincare-analyzer-backend/model_bge"
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_path = os.path.join(project_root, "model_bge")
         print("Memuat local embedding model...")
         
         # 1. Coba load dari folder proyek 'model_bge' yang sudah berhasil didownload penuh
