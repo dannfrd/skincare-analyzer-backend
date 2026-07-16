@@ -86,6 +86,129 @@ TOP_K_PER_INGREDIENT = 25
 # Minimum score fraction (0..1) for a product to be included in results
 MIN_PRODUCT_SCORE = 0.08
 
+
+# ── Active Ingredients Database ────────────────────────────────────────────────
+ACTIVE_INGREDIENTS_MAP = {
+    # Brightening / Hyperpigmentation
+    "niacinamide": {"concerns": ["dullness", "hyperpigmentation", "acne", "barrier"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"], "synergies": ["retinol", "hyaluronic acid"]},
+    "vitamin c": {"concerns": ["dullness", "hyperpigmentation", "aging"], "skin_types": ["normal", "dry", "oily", "combination"], "conflicts": ["retinol", "salicylic acid", "glycolic acid", "lactic acid"]},
+    "ascorbic acid": {"concerns": ["dullness", "hyperpigmentation", "aging"], "skin_types": ["normal", "dry", "oily", "combination"], "conflicts": ["retinol", "salicylic acid", "glycolic acid", "lactic acid"]},
+    "arbutin": {"concerns": ["dullness", "hyperpigmentation"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "alpha arbutin": {"concerns": ["dullness", "hyperpigmentation"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "tranexamic acid": {"concerns": ["hyperpigmentation", "barrier"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "kojic acid": {"concerns": ["hyperpigmentation"], "skin_types": ["normal", "dry", "oily", "combination"]},
+    "glutathione": {"concerns": ["dullness", "hyperpigmentation"], "skin_types": ["normal", "dry", "oily", "combination"]},
+
+    # Acne / Exfoliation / Oily Skin
+    "salicylic acid": {"concerns": ["acne", "oily", "blackheads"], "skin_types": ["oily", "combination"], "conflicts": ["retinol", "vitamin c", "ascorbic acid", "glycolic acid", "lactic acid"]},
+    "bha": {"concerns": ["acne", "oily", "blackheads"], "skin_types": ["oily", "combination"], "conflicts": ["retinol", "vitamin c", "ascorbic acid", "glycolic acid", "lactic acid"]},
+    "glycolic acid": {"concerns": ["acne", "dullness", "aging"], "skin_types": ["normal", "oily", "combination"], "conflicts": ["retinol", "vitamin c", "ascorbic acid", "salicylic acid", "lactic acid"]},
+    "lactic acid": {"concerns": ["acne", "dullness", "dryness"], "skin_types": ["normal", "dry", "combination"], "conflicts": ["retinol", "vitamin c", "ascorbic acid", "salicylic acid", "glycolic acid"]},
+    "aha": {"concerns": ["acne", "dullness", "aging", "dryness"], "skin_types": ["normal", "dry", "oily", "combination"], "conflicts": ["retinol", "vitamin c", "ascorbic acid", "salicylic acid", "glycolic acid", "lactic acid"]},
+    "tea tree": {"concerns": ["acne", "oily"], "skin_types": ["oily", "combination", "sensitive"]},
+    "azelaic acid": {"concerns": ["acne", "hyperpigmentation", "redness"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+
+    # Anti-Aging
+    "retinol": {"concerns": ["aging", "wrinkles", "acne"], "skin_types": ["normal", "dry", "oily", "combination"], "conflicts": ["salicylic acid", "glycolic acid", "lactic acid", "vitamin c", "ascorbic acid"], "synergies": ["niacinamide", "ceramide", "hyaluronic acid"]},
+    "retinal": {"concerns": ["aging", "wrinkles", "acne"], "skin_types": ["normal", "dry", "oily", "combination"], "conflicts": ["salicylic acid", "glycolic acid", "lactic acid", "vitamin c", "ascorbic acid"]},
+    "bakuchiol": {"concerns": ["aging", "wrinkles", "acne"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"], "synergies": ["retinol"]},
+    "peptide": {"concerns": ["aging", "wrinkles", "barrier"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "collagen": {"concerns": ["aging", "dryness"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+
+    # Hydration / Barrier Repair / Soothing
+    "ceramide": {"concerns": ["barrier", "dryness", "sensitive", "redness"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"], "synergies": ["hyaluronic acid", "retinol"]},
+    "hyaluronic acid": {"concerns": ["dryness", "barrier"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"], "synergies": ["panthenol", "ceramide", "niacinamide"]},
+    "sodium hyaluronate": {"concerns": ["dryness", "barrier"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "panthenol": {"concerns": ["barrier", "redness", "sensitive", "dryness"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"], "synergies": ["hyaluronic acid"]},
+    "centella asiatica": {"concerns": ["barrier", "redness", "sensitive", "acne"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "madecassoside": {"concerns": ["barrier", "redness", "sensitive", "acne"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "allantoin": {"concerns": ["redness", "sensitive"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "bisabolol": {"concerns": ["redness", "sensitive"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "aloe vera": {"concerns": ["dryness", "redness", "sensitive"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "calendula": {"concerns": ["redness", "sensitive"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "licorice": {"concerns": ["redness", "hyperpigmentation", "sensitive"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "squalane": {"concerns": ["dryness", "barrier"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "green tea": {"concerns": ["redness", "oily", "acne"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+    "mugwort": {"concerns": ["barrier", "redness", "sensitive", "acne"], "skin_types": ["normal", "dry", "oily", "combination", "sensitive"]},
+}
+
+
+def _get_active_ingredient_properties(ing_name: str) -> Optional[Dict[str, Any]]:
+    """Mendapatkan metadata kecocokan kulit & efek dari nama bahan aktif."""
+    name_lower = ing_name.strip().lower()
+    for key, props in ACTIVE_INGREDIENTS_MAP.items():
+        if key in name_lower or name_lower in key:
+            return props
+    return None
+
+
+def check_compatibility(active_ings: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Mengecek apakah di antara bahan aktif yang di-scan terdapat sinergi atau konflik kompatibilitas."""
+    conflicts = []
+    synergies = []
+    
+    active_props = {}
+    for ing in active_ings:
+        props = _get_active_ingredient_properties(ing)
+        if props:
+            active_props[ing.lower().strip()] = props
+            
+    present_actives = list(active_props.keys())
+    
+    for i in range(len(present_actives)):
+        for j in range(i + 1, len(present_actives)):
+            act1 = present_actives[i]
+            act2 = present_actives[j]
+            
+            props1 = active_props[act1]
+            props2 = active_props[act2]
+            
+            if act2 in props1.get("conflicts", []) or act1 in props2.get("conflicts", []):
+                name1 = next(ing for ing in active_ings if ing.lower().strip() == act1)
+                name2 = next(ing for ing in active_ings if ing.lower().strip() == act2)
+                
+                msg = f"Kombinasi {name1} + {name2} dapat memicu iritasi kulit (terutama untuk kulit sensitif). Gunakan di waktu yang berbeda (pagi/malam) atau secara bergantian."
+                conflicts.append({
+                    "ingredients": [name1, name2],
+                    "message": msg
+                })
+                
+            if act2 in props1.get("synergies", []) or act1 in props2.get("synergies", []):
+                name1 = next(ing for ing in active_ings if ing.lower().strip() == act1)
+                name2 = next(ing for ing in active_ings if ing.lower().strip() == act2)
+                
+                msg = f"Kombinasi {name1} + {name2} bekerja secara sinergis meningkatkan hasil perawatan."
+                synergies.append({
+                    "ingredients": [name1, name2],
+                    "message": msg
+                })
+                
+    return {
+        "conflicts": conflicts,
+        "synergies": synergies
+    }
+
+
+def get_routine_recommendation_tip(category: Optional[str]) -> str:
+    """Memberikan saran langkah perawatan kulit berikutnya berdasarkan kategori yang di-scan."""
+    if not category:
+        return "Gunakan produk hidrasi dan tabir surya setelah perawatan aktif."
+        
+    cat = category.lower().strip()
+    if cat == "cleanser":
+        return "Setelah membersihkan wajah, gunakan Toner hidrasi dan Moisturizer untuk menjaga kelembapan kulit."
+    elif cat == "toner":
+        return "Lanjutkan dengan Serum bahan aktif (jika ada) dan Moisturizer untuk mengunci kelembapan."
+    elif cat == "serum":
+        return "Kunci bahan aktif serum Anda dengan Moisturizer. Jangan lupa Sunscreen jika digunakan di pagi hari."
+    elif cat == "moisturizer":
+        return "Gunakan Sunscreen (pagi) sebagai langkah penutup rutinitas perawatan kulit Anda."
+    elif cat == "sunscreen":
+        return "Gunakan Pembersih wajah (Cleanser/Double Cleanser) di malam hari untuk membersihkan residu sunscreen secara menyeluruh."
+    elif cat == "exfoliator":
+        return "Setelah eksfoliasi, hindari bahan aktif iritatif (seperti Retinol/Vit C) dan gunakan Ceramide atau Centella untuk meredakan kulit."
+    return "Lanjutkan rutinitas perawatan kulit dasar Anda dengan pembersih, pelembap, dan tabir surya."
+
 # ── Ingest lock flag ───────────────────────────────────────────────────────────
 # Saat backend melakukan reingest (via /admin/reingest), flag ini True
 # sehingga semantic search dilewati (fallback ke string-overlap)
@@ -286,8 +409,10 @@ def get_string_overlap_recommendations(
     ingredient_names: List[str],
     limit: int = 8,
     category: Optional[str] = None,
+    skin_type: Optional[str] = None,
+    skin_concern: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Classic string-overlap recommendations (legacy strategy)."""
+    """Classic string-overlap recommendations with position weighting and skin type/concern boosts."""
     products, _ = _load_products()
     active_ings = filter_active_ingredients(ingredient_names)
     query_ings = [i.strip().lower() for i in active_ings if i.strip()]
@@ -296,6 +421,14 @@ def get_string_overlap_recommendations(
 
     target_cat = standardize_category(category)
 
+    # Menghitung bobot posisi bahan aktif scan
+    total_weight = 0.0
+    ing_weights = {}
+    for idx, q in enumerate(query_ings):
+        weight = max(0.3, 1.0 - (idx * 0.05))
+        ing_weights[q] = weight
+        total_weight += weight
+
     scored = []
     for product in products:
         if target_cat:
@@ -303,24 +436,69 @@ def get_string_overlap_recommendations(
             if prod_cat != target_cat:
                 continue
 
-        score, matched = _string_overlap_score(query_ings, product["ingredients"])
+        matched = []
+        matched_weight_sum = 0.0
+        product_ings = product["ingredients"]
+        for q in query_ings:
+            weight = ing_weights.get(q, 1.0)
+            for pi in product_ings:
+                if q == pi or (len(q) >= 4 and (q in pi or pi in q)):
+                    orig_name = next((ing for ing in active_ings if ing.lower().strip() == q), q)
+                    matched.append(orig_name)
+                    matched_weight_sum += weight
+                    break
+
+        score = matched_weight_sum / total_weight if total_weight else 0.0
         if score <= 0:
             continue
+
+        # Skin profile boost
+        boost = 0.0
+        concern_match_count = 0
+        type_match_count = 0
+        matched_concern_ingredients = []
+
+        for ing in product["ingredients"]:
+            props = _get_active_ingredient_properties(ing)
+            if props:
+                if skin_concern and skin_concern.lower() in props.get("concerns", []):
+                    concern_match_count += 1
+                    matched_concern_ingredients.append(ing)
+                if skin_type and skin_type.lower() in props.get("skin_types", []):
+                    type_match_count += 1
+
+        if skin_concern and concern_match_count > 0:
+            boost += min(0.15, 0.08 + (concern_match_count * 0.02))
+        if skin_type and type_match_count > 0:
+            boost += min(0.05, 0.02 + (type_match_count * 0.01))
+
+        final_score = score + boost
+
+        suitability_reasons = []
+        if skin_type and type_match_count > 0:
+            suitability_reasons.append(f"Cocok untuk kulit {skin_type.title()}")
+        if skin_concern and concern_match_count > 0:
+            suitability_reasons.append(f"Membantu mengatasi {skin_concern.title()}")
+            
+        suitability_text = " | ".join(suitability_reasons) if suitability_reasons else ""
+
         scored.append({
-            "_score": score,
+            "_score": final_score,
             "name": product["name"],
             "brand": product["brand"],
             "category_tags": product.get("category", ""),
             "url": product.get("url", ""),
             "price": product.get("price", ""),
-            "similarity_pct": min(round(score * 100), 99),
-            "matched_ingredients": matched,
+            "similarity_pct": min(round(final_score * 100), 99),
+            "matched_ingredients": matched[:4],
             "match_reason": "Komposisi bahan serupa",
+            "skin_suitability": suitability_text,
+            "matched_concern_actives": list(set(matched_concern_ingredients))[:3]
         })
 
     # Fallback jika pencarian terlalu ketat dan mengembalikan 0 hasil
     if target_cat and not scored:
-        return get_string_overlap_recommendations(ingredient_names, limit, category=None)
+        return get_string_overlap_recommendations(ingredient_names, limit, category=None, skin_type=skin_type, skin_concern=skin_concern)
 
     scored.sort(key=lambda x: x["_score"], reverse=True)
     return [{k: v for k, v in e.items() if k != "_score"} for e in scored[:limit]]
@@ -370,17 +548,11 @@ def get_semantic_recommendations(
     limit: int = 8,
     semantic_threshold: float = SEMANTIC_THRESHOLD,
     category: Optional[str] = None,
+    skin_type: Optional[str] = None,
+    skin_concern: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Semantic product recommendation via Qdrant similarity search.
-
-    Steps:
-    1. Untuk setiap ingredient yang di-scan, embed namanya dan cari di Qdrant
-       ingredient paling mirip secara semantik (cosine similarity > threshold).
-    2. Kumpulkan related_product_ids dari payload setiap hit.
-    3. Score tiap produk berdasarkan berapa banyak query ingredient yang
-       punya match semantik di dalam ingredient list produk tersebut.
-    4. Enrich dengan metadata produk dan return sorted results.
+    Semantic product recommendation via Qdrant similarity search with position weighting and skin type/concern boosts.
     """
     # Skip jika sedang proses ingest (hindari lock conflict)
     if _is_ingesting:
@@ -393,7 +565,15 @@ def get_semantic_recommendations(
     target_cat = standardize_category(category)
     active_ings = filter_active_ingredients(ingredient_names)
 
-    # product_id → {score_sum, hit_count, matched_pairs}
+    # Menghitung bobot posisi bahan aktif scan
+    total_weight = 0.0
+    ing_weights = {}
+    for idx, ing_name in enumerate(active_ings):
+        weight = max(0.3, 1.0 - (idx * 0.05))
+        ing_weights[ing_name.lower().strip()] = weight
+        total_weight += weight
+
+    # product_id → {score_sum, weight_sum, matched_query_weights, matched_pairs}
     product_votes: Dict[str, Dict[str, Any]] = {}
 
     for ing_name in active_ings:
@@ -407,6 +587,7 @@ def get_semantic_recommendations(
 
         # Buka Qdrant, search, tutup — semua dalam satu call
         hits = _qdrant_search(vector, TOP_K_PER_INGREDIENT, semantic_threshold)
+        weight = ing_weights.get(ing_name.lower().strip(), 1.0)
 
         for hit in hits:
             payload = hit.payload or {}
@@ -415,24 +596,26 @@ def get_semantic_recommendations(
             similar_name = payload.get("name", "")
             functions = payload.get("functions", "")
 
+            weighted_score = sim_score * weight
+
             for pid in related_pids:
                 pid = str(pid)
                 if pid not in product_votes:
                     product_votes[pid] = {
                         "score_sum": 0.0,
-                        "hit_count": 0,
+                        "weight_sum": 0.0,
+                        "matched_query_weights": {},
                         "matched_pairs": [],
                     }
-                product_votes[pid]["score_sum"] += sim_score
-                product_votes[pid]["hit_count"] += 1
+                product_votes[pid]["score_sum"] += weighted_score
+                product_votes[pid]["weight_sum"] += weight
+                product_votes[pid]["matched_query_weights"][ing_name.lower().strip()] = weight
                 product_votes[pid]["matched_pairs"].append(
                     (ing_name, similar_name, functions, round(sim_score, 3))
                 )
 
     if not product_votes:
         return []
-
-    n_query = len([i for i in active_ings if i.strip()])
 
     results = []
     for pid, data in product_votes.items():
@@ -445,9 +628,33 @@ def get_semantic_recommendations(
             if prod_cat != target_cat:
                 continue
 
-        avg_sim = data["score_sum"] / data["hit_count"] if data["hit_count"] else 0
-        coverage = min(data["hit_count"] / n_query, 1.0) if n_query else 0
-        final_score = avg_sim * 0.6 + coverage * 0.4
+        weighted_avg_sim = data["score_sum"] / data["weight_sum"] if data["weight_sum"] else 0
+        product_matched_weight = sum(data["matched_query_weights"].values())
+        weighted_coverage = product_matched_weight / total_weight if total_weight else 0
+        
+        final_score = weighted_avg_sim * 0.6 + weighted_coverage * 0.4
+
+        # Skin profile boost
+        boost = 0.0
+        concern_match_count = 0
+        type_match_count = 0
+        matched_concern_ingredients = []
+
+        for ing in prod["ingredients"]:
+            props = _get_active_ingredient_properties(ing)
+            if props:
+                if skin_concern and skin_concern.lower() in props.get("concerns", []):
+                    concern_match_count += 1
+                    matched_concern_ingredients.append(ing)
+                if skin_type and skin_type.lower() in props.get("skin_types", []):
+                    type_match_count += 1
+
+        if skin_concern and concern_match_count > 0:
+            boost += min(0.15, 0.08 + (concern_match_count * 0.02))
+        if skin_type and type_match_count > 0:
+            boost += min(0.05, 0.02 + (type_match_count * 0.01))
+
+        final_score += boost
 
         if final_score < MIN_PRODUCT_SCORE:
             continue
@@ -472,6 +679,14 @@ def get_semantic_recommendations(
         else:
             match_reason = "Komposisi bahan serupa"
 
+        suitability_reasons = []
+        if skin_type and type_match_count > 0:
+            suitability_reasons.append(f"Cocok untuk kulit {skin_type.title()}")
+        if skin_concern and concern_match_count > 0:
+            suitability_reasons.append(f"Membantu mengatasi {skin_concern.title()}")
+            
+        suitability_text = " | ".join(suitability_reasons) if suitability_reasons else ""
+
         results.append({
             "_score": final_score,
             "name": prod["name"],
@@ -482,11 +697,13 @@ def get_semantic_recommendations(
             "similarity_pct": min(round(final_score * 100), 99),
             "matched_ingredients": matched_display[:4],
             "match_reason": match_reason,
+            "skin_suitability": suitability_text,
+            "matched_concern_actives": list(set(matched_concern_ingredients))[:3]
         })
 
     # Fallback jika pencarian terlalu ketat dan mengembalikan 0 hasil
     if target_cat and not results:
-        return get_semantic_recommendations(ingredient_names, limit, semantic_threshold, category=None)
+        return get_semantic_recommendations(ingredient_names, limit, semantic_threshold, category=None, skin_type=skin_type, skin_concern=skin_concern)
 
     results.sort(key=lambda x: x["_score"], reverse=True)
     seen_names = set()
@@ -507,37 +724,44 @@ def get_recommendations(
     limit: int = 8,
     mode: str = "auto",
     category: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    skin_type: Optional[str] = None,
+    skin_concern: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Get product recommendations using the best available strategy.
+    Get product recommendations using the best available strategy with skin type/concern boosts and compatibility check metadata.
+    """
+    active_ings = filter_active_ingredients(ingredient_names)
+    compatibility_tips = check_compatibility(active_ings)
+    routine_tip = get_routine_recommendation_tip(category)
 
-    mode:
-      'semantic'  — Qdrant semantic search only
-      'overlap'   — string-overlap only (legacy, fast)
-      'auto'      — semantic first, fallback ke overlap jika < 3 hasil
-    """
     if mode == "overlap":
-        return get_string_overlap_recommendations(ingredient_names, limit, category=category)
+        recs = get_string_overlap_recommendations(
+            ingredient_names, limit, category=category, skin_type=skin_type, skin_concern=skin_concern
+        )
+    elif mode == "semantic":
+        recs = get_semantic_recommendations(
+            ingredient_names, limit, category=category, skin_type=skin_type, skin_concern=skin_concern
+        )
+    else:
+        # auto: prefer semantic, fallback to overlap
+        recs = get_semantic_recommendations(
+            ingredient_names, limit, category=category, skin_type=skin_type, skin_concern=skin_concern
+        )
+        if len(recs) < 3:
+            overlap_results = get_string_overlap_recommendations(
+                ingredient_names, limit, category=category, skin_type=skin_type, skin_concern=skin_concern
+            )
+            seen = {r["name"].lower().strip() for r in recs}
+            for r in overlap_results:
+                key = r["name"].lower().strip()
+                if key not in seen:
+                    seen.add(key)
+                    recs.append(r)
+                if len(recs) >= limit:
+                    break
 
-    if mode == "semantic":
-        return get_semantic_recommendations(ingredient_names, limit, category=category)
-
-    # auto: prefer semantic, fallback to overlap
-    semantic_results = get_semantic_recommendations(ingredient_names, limit, category=category)
-    if len(semantic_results) >= 3:
-        return semantic_results
-
-    # Fallback: merge semantic + overlap
-    overlap_results = get_string_overlap_recommendations(ingredient_names, limit, category=category)
-
-    seen = {r["name"].lower().strip() for r in semantic_results}
-    merged = list(semantic_results)
-    for r in overlap_results:
-        key = r["name"].lower().strip()
-        if key not in seen:
-            seen.add(key)
-            merged.append(r)
-        if len(merged) >= limit:
-            break
-
-    return merged[:limit]
+    return {
+        "recommendations": recs[:limit],
+        "compatibility_tips": compatibility_tips,
+        "routine_tip": routine_tip
+    }

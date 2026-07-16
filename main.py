@@ -1,3 +1,7 @@
+import os
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import os
+import time
 import json
 from jose import jwt, JWTError
 from dotenv import load_dotenv
@@ -57,15 +62,17 @@ async def startup_event():
         print(f"Error pre-loading SentenceTransformer: {e}")
 
     engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
-    if engine == "paddleocr":
+    if engine in ("paddleocr_vl", "paddleocr_api", "paddleocr_cloud"):
+        print(f"PaddleOCR-VL Cloud API aktif (Model: {os.getenv('PADDLE_OCR_MODEL', 'PaddleOCR-VL-1.6')}).")
+    elif engine in ("paddleocr", "paddleocr_local"):
         try:
-            from modules.ocr import PaddleOCRProcessor
-            print("Pre-loading PaddleOCR engine...")
-            PaddleOCRProcessor.get_instance()
+            from modules.paddleocr_service import PaddleOCRLocalProcessor
+            print("Pre-loading PaddleOCR Local (PP-OCRv4) engine...")
+            PaddleOCRLocalProcessor.get_instance()
         except Exception as e:
-            print(f"Error pre-loading PaddleOCR: {e}")
+            print(f"Error pre-loading PaddleOCR Local: {e}")
     else:
-        print("Tesseract OCR murni aktif (tidak perlu pre-load model di memori).")
+        print("Tesseract OCR aktif (atau fallback default).")
     print("="*50 + "\n")
 
 
@@ -404,6 +411,14 @@ class UserHistorySummaryResponse(BaseModel):
     user_email: Optional[str] = None
     analysis_id: Optional[int] = None
     analysis_status: Optional[str] = None
+    product_name: Optional[str] = None
+    product_brand: Optional[str] = None
+    product_category: Optional[str] = None
+    summary: Optional[str] = None
+    recommendation: Optional[str] = None
+    extracted_text: Optional[str] = None
+    matched_ingredient_count: Optional[int] = None
+    matched_ingredients: Optional[List[str]] = None
     analysis_created_at: Optional[str] = None
     viewed_at: Optional[str] = None
 
@@ -710,10 +725,12 @@ async def analyze_image(
             shutil.copyfileobj(file.file, buffer)
         
         # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
+        start_time = time.time()
         extracted_text = extract_text_from_image_path(temp_path)
+        exec_time_ms = int((time.time() - start_time) * 1000)
         
         print("\n" + "="*60)
-        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name}")
+        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name} | ⏱️ Waktu OCR: {exec_time_ms} ms")
         print("-" * 60)
         print(f"📑 Teks Hasil OCR:\n{extracted_text.strip() if extracted_text.strip() else '(Kosong / Tidak ada teks)'}")
         print("="*60 + "\n")
@@ -766,9 +783,16 @@ def process_text_analysis(
     
     # 5. Enrich matched ingredients with dataset descriptions
     # Tambahkan deskripsi singkat dari dataset RAG untuk setiap ingredient
+    qdrant_client = None
+    try:
+        from modules.qdrant_client_factory import get_qdrant_client
+        qdrant_client = get_qdrant_client()
+    except Exception as e:
+        print(f"Failed to initialize Qdrant client for enriching ingredients: {e}")
+
     for ingredient in matched_ingredients:
         ingredient_name = ingredient.get("name", "")
-        dataset_info = get_ingredient_simple_description(ingredient_name)
+        dataset_info = get_ingredient_simple_description(ingredient_name, client=qdrant_client)
         
         if dataset_info and dataset_info.get("found_in_dataset"):
             # Tambahkan info dari dataset
@@ -791,6 +815,12 @@ def process_text_analysis(
             ingredient["dataset_sources"] = []
             ingredient["found_in_dataset"] = False
 
+    if qdrant_client is not None:
+        try:
+            qdrant_client.close()
+        except Exception:
+            pass
+
     # 6. Rule-based expert analysis
     expert_report = run_expert_system(matched_ingredients)
     
@@ -811,10 +841,10 @@ def process_text_analysis(
         ai_result_payload = future_ai.result()
         simple_descriptions_map = future_simple.result()
 
-    # Mapped simple descriptions
+    # Mapped simple descriptions (only for ingredients that don't already have one from Qdrant)
     for ing in matched_ingredients:
         name = str(ing.get("name") or ing.get("ocr_token_used") or "").upper().strip()
-        if name in simple_descriptions_map:
+        if name in simple_descriptions_map and not (ing.get("dataset_description") or "").strip():
             ing["dataset_description"] = simple_descriptions_map[name]
 
 
@@ -890,31 +920,42 @@ def get_recommendations(
         description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
     ),
     category: Optional[str] = Query(default=None, description="Category of the scanned product"),
+    skin_type: Optional[str] = Query(default=None, description="Skin type of the user"),
+    skin_concern: Optional[str] = Query(default=None, description="Primary skin concern of the user"),
 ):
     """
-    Return top-N similar products from the INCIDecoder dataset.
-
-    Strategy options (mode param):
-    - 'auto'     : Qdrant semantic search first, falls back to string-overlap
-                   when fewer than 3 semantic results are found.
-    - 'semantic' : Pure Qdrant vector similarity (requires Qdrant data to be
-                   set up via qdrant_setup.py).
-    - 'overlap'  : Classic substring-overlap (fast, no Qdrant required).
-
-    Response fields per product:
-      name, brand, category_tags, url, similarity_pct, matched_ingredients,
-      match_reason (e.g. "Fungsi serupa: moisturizer, humectant")
+    Return top-N similar products from the INCIDecoder dataset with personalized matching and compatibility checks.
     """
     ingredient_names = [i.strip() for i in ingredients.split(",") if i.strip()]
     if not ingredient_names:
-        return {"recommendations": [], "mode_used": mode}
+        return {
+            "recommendations": [],
+            "compatibility_tips": {"conflicts": [], "synergies": []},
+            "routine_tip": "",
+            "mode_used": mode
+        }
 
     valid_modes = {"auto", "semantic", "overlap"}
     if mode not in valid_modes:
         mode = "auto"
 
-    result = _recommender_get(ingredient_names, limit=limit, mode=mode, category=category)
-    return {"recommendations": result, "mode_used": mode}
+    result = _recommender_get(
+        ingredient_names,
+        limit=limit,
+        mode=mode,
+        category=category,
+        skin_type=skin_type,
+        skin_concern=skin_concern
+    )
+    
+    return {
+        "recommendations": result.get("recommendations", []),
+        "compatibility_tips": result.get("compatibility_tips", {"conflicts": [], "synergies": []}),
+        "routine_tip": result.get("routine_tip", ""),
+        "mode_used": mode,
+        "skin_type_used": skin_type,
+        "skin_concern_used": skin_concern
+    }
 
 
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
@@ -1531,3 +1572,9 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
             result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
             
         return {"items": result}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("Starting FastAPI Backend Server via Uvicorn (Port 8000)...")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

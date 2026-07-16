@@ -313,12 +313,15 @@ class DatabaseConnection:
                 continue
 
             # 2. Auto-insert ingredients backed by DB matching or the dataset.
-            desc = str(
+            desc_val = str(
                 ingredient.get("dataset_description") or ingredient.get("description") or ""
             ).strip()
-            func = str(
+            desc = desc_val if desc_val and desc_val.lower() != "unknown" else "Bahan kosmetik / perawatan kulit umum."
+
+            func_val = str(
                 ingredient.get("dataset_functions") or ingredient.get("function") or ""
-            ).strip() or "Unknown"
+            ).strip()
+            func = func_val if func_val and func_val.lower() != "unknown" else "General Skincare Ingredient"
 
             # Determine risk level
             if ingredient.get("dataset_harmful"):
@@ -480,10 +483,12 @@ class DatabaseConnection:
             
             # Menggunakan data dari Qdrant (RAG) jika tersedia
             dataset_functions = str(ingredient.get("dataset_functions") or "").strip()
-            function_text = dataset_functions if dataset_functions else str(ingredient.get("function") or "Unknown")
+            raw_func = dataset_functions if dataset_functions else str(ingredient.get("function") or "")
+            function_text = raw_func.strip() if raw_func.strip() and raw_func.strip().lower() != "unknown" else "General Skincare Ingredient"
             
             dataset_description = str(ingredient.get("dataset_description") or "").strip()
-            benefit_text = dataset_description if dataset_description else str(ingredient.get("description") or "")
+            raw_benefit = dataset_description if dataset_description else str(ingredient.get("description") or "")
+            benefit_text = raw_benefit.strip() if raw_benefit.strip() and raw_benefit.strip().lower() != "unknown" else "Komponen formula perawatan kulit untuk menjaga tekstur dan efektivitas produk."
 
             risk_parts: List[str] = []
             
@@ -2140,10 +2145,37 @@ class DatabaseConnection:
                         u.name AS user_name,
                         u.email AS user_email,
                         a.status AS analysis_status,
-                        a.created_at AS analysis_created_at
+                        a.summary AS analysis_summary,
+                        a.recommendation AS analysis_recommendation,
+                        a.created_at AS analysis_created_at,
+                        s.extracted_text,
+                        p.name AS product_name,
+                        p.brand AS product_brand,
+                        p.category AS product_category,
+                        COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
+                        GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients
                     FROM user_histories uh
                     LEFT JOIN users u ON u.id = uh.user_id
                     LEFT JOIN analyses a ON a.id = uh.analysis_id
+                    LEFT JOIN scans s ON s.id = a.scan_id
+                    LEFT JOIN products p ON p.id = s.product_id
+                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                    GROUP BY
+                        uh.id,
+                        uh.user_id,
+                        uh.analysis_id,
+                        uh.viewed_at,
+                        u.name,
+                        u.email,
+                        a.status,
+                        a.summary,
+                        a.recommendation,
+                        a.created_at,
+                        s.extracted_text,
+                        p.name,
+                        p.brand,
+                        p.category
                     ORDER BY uh.viewed_at DESC
                     LIMIT :limit
                     """
@@ -2151,19 +2183,29 @@ class DatabaseConnection:
 
                 rows = conn.execute(query, {"limit": limit}).mappings().all()
 
-                return [
-                    {
+                result = []
+                for row in rows:
+                    raw_matched = row.get("matched_ingredients")
+                    matched_list = [item.strip() for item in str(raw_matched).split(",") if item.strip()] if raw_matched else []
+                    result.append({
                         "id": row.get("id"),
                         "user_id": row.get("user_id"),
                         "user_name": row.get("user_name"),
                         "user_email": row.get("user_email"),
                         "analysis_id": row.get("analysis_id"),
                         "analysis_status": row.get("analysis_status"),
+                        "product_name": row.get("product_name"),
+                        "product_brand": row.get("product_brand"),
+                        "product_category": row.get("product_category"),
+                        "summary": row.get("analysis_summary"),
+                        "recommendation": row.get("analysis_recommendation"),
+                        "extracted_text": row.get("extracted_text"),
+                        "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
+                        "matched_ingredients": matched_list,
                         "analysis_created_at": self._to_iso_datetime(row.get("analysis_created_at")),
                         "viewed_at": self._to_iso_datetime(row.get("viewed_at")),
-                    }
-                    for row in rows
-                ]
+                    })
+                return result
         except Exception as e:
             logger.error(f"Error fetching user histories list: {e}")
             return []
