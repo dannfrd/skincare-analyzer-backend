@@ -1,0 +1,12 @@
+Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),Exact Match F1 (%),Fuzzy Match Precision (%),Fuzzy Match Recall (%),Fuzzy Match F1 (%),Execution Time (ms),Total GT Ingredients,Total OCR Tokens Detected
+g2g_cleanser_trial_01,tesseract,78.62%,64.29%,23.08%,37.50%,28.57%,50.00%,81.25%,61.90%,850,16,26
+g2g_cleanser_trial_02,tesseract,125.50%,125.89%,20.59%,43.75%,28.00%,55.88%,100.00%,71.70%,860,16,34
+g2g_cleanser_trial_03,tesseract,94.16%,75.89%,22.58%,43.75%,29.79%,51.61%,93.75%,66.57%,870,16,31
+g2g_cleanser_trial_04,tesseract,68.26%,58.04%,25.93%,43.75%,32.56%,62.96%,100.00%,77.27%,880,16,27
+g2g_cleanser_trial_05,tesseract,57.90%,51.79%,32.14%,56.25%,40.91%,64.29%,100.00%,78.26%,865,16,28
+g2g_cleanser_trial_06,tesseract,34.13%,47.32%,26.92%,43.75%,33.33%,61.54%,93.75%,74.30%,855,16,26
+g2g_cleanser_trial_07,tesseract,103.85%,59.82%,22.58%,43.75%,29.79%,54.84%,100.00%,70.83%,860,16,31
+g2g_cleanser_trial_08,tesseract,124.17%,100.00%,26.92%,43.75%,33.33%,65.38%,100.00%,79.07%,865,16,26
+g2g_cleanser_trial_09,tesseract,27.49%,29.46%,25.93%,43.75%,32.56%,74.07%,100.00%,85.11%,870,16,27
+g2g_cleanser_trial_10,tesseract,103.98%,65.18%,25.93%,43.75%,32.56%,70.37%,100.00%,82.61%,860,16,27
+g2g_cleanser_trial_11,tesseract,39.58%,33.93%,32.00%,50.00%,39.02%,72.00%,93.75%,81.45%,855,16,25

@@ -1,0 +1,12 @@
+Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),Exact Match F1 (%),Fuzzy Match Precision (%),Fuzzy Match Recall (%),Fuzzy Match F1 (%),Execution Time (ms),Total GT Ingredients,Total OCR Tokens Detected
+Facial Wash Scora,paddleocr,19.87%,68.25%,38.46%,15.62%,22.22%,92.31%,37.50%,53.33%,34182,32,13
+Exfoliasi Skintific,paddleocr,6.03%,47.62%,86.67%,83.87%,85.25%,100.00%,96.77%,98.36%,76786,31,30
+Facial Wash G2G,paddleocr,42.79%,84.93%,88.24%,41.67%,56.60%,100.00%,47.22%,64.15%,60107,36,17
+Facial Wash Kahf,paddleocr,52.15%,93.02%,61.90%,28.26%,38.81%,100.00%,45.65%,62.69%,65385,46,21
+G2G Cleanser,paddleocr,12.48%,50.89%,70.59%,75.00%,72.73%,100.00%,100.00%,100.00%,69062,16,17
+Lipcare Madame Gie,paddleocr,5.43%,35.48%,60.00%,46.15%,52.17%,100.00%,76.92%,86.96%,60691,13,10
+Masker Camille,paddleocr,8.21%,48.98%,86.36%,79.17%,82.61%,100.00%,91.67%,95.65%,70758,24,22
+Masker Hidung Komedo,paddleocr,49.17%,77.14%,12.50%,7.14%,9.09%,87.50%,50.00%,63.64%,70969,14,8
+Sunscreen Emina,paddleocr,12.44%,52.00%,65.85%,58.70%,62.07%,100.00%,86.96%,93.02%,92111,46,41
+Wardah Face Mist,paddleocr,29.85%,92.59%,0.00%,0.00%,0.00%,80.00%,25.00%,38.10%,52244,16,5
+Originote Eye Serum,paddleocr,107.88%,195.16%,11.11%,5.71%,7.55%,38.89%,20.00%,26.42%,128340,35,18

@@ -1,0 +1,12 @@
+Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),Exact Match F1 (%),Fuzzy Match Precision (%),Fuzzy Match Recall (%),Fuzzy Match F1 (%),Execution Time (ms),Total GT Ingredients,Total OCR Tokens Detected
+Facial Wash Scora,tesseract,96.77%,157.14%,16.67%,6.25%,9.09%,75.00%,28.12%,40.91%,915,32,12
+Exfoliasi Skintific,tesseract,140.52%,166.67%,35.90%,45.16%,40.00%,74.36%,93.55%,82.86%,890,31,39
+G2G Cleanser,tesseract,135.72%,83.93%,25.00%,43.75%,31.82%,64.29%,100.00%,78.26%,865,16,28
+Sunscreen Emina,tesseract,148.77%,94.00%,25.00%,19.57%,21.95%,88.89%,67.39%,76.66%,1085,46,36
+Wardah Face Mist,tesseract,836.94%,1029.63%,0.00%,0.00%,0.00%,12.00%,18.75%,14.63%,930,16,25
+Masker Camille,tesseract,401.00%,387.76%,53.33%,66.67%,59.26%,73.33%,91.67%,81.48%,945,24,30
+Masker Hidung Komedo,tesseract,481.06%,665.71%,30.00%,21.43%,25.00%,60.00%,42.86%,50.00%,880,14,10
+Originote Eye Serum,tesseract,134.55%,117.74%,5.71%,5.71%,5.71%,42.86%,42.86%,42.86%,960,35,35
+Facial Wash Kahf,tesseract,306.08%,323.26%,65.85%,58.70%,62.07%,90.24%,80.43%,85.06%,1015,46,41
+Facial Wash G2G,tesseract,178.76%,201.37%,43.18%,52.78%,47.50%,81.82%,86.11%,83.91%,910,36,44
+Lipcare Madame Gie,tesseract,357.71%,448.39%,13.04%,23.08%,16.67%,34.78%,53.85%,42.26%,895,13,23

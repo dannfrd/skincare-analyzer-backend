@@ -1,0 +1,12 @@
+Sample,Engine,CER (%),WER (%),Exact Match Precision (%),Exact Match Recall (%),Exact Match F1 (%),Fuzzy Match Precision (%),Fuzzy Match Recall (%),Fuzzy Match F1 (%),Execution Time (ms),Total GT Ingredients,Total OCR Tokens Detected
+g2g_cleanser_trial_01,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1989,16,23
+g2g_cleanser_trial_02,mlkit,50.33%,58.93%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1210,16,23
+g2g_cleanser_trial_03,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1272,16,23
+g2g_cleanser_trial_04,mlkit,50.60%,60.71%,28.57%,37.50%,32.43%,90.48%,93.75%,92.08%,1088,16,21
+g2g_cleanser_trial_05,mlkit,50.46%,59.82%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1022,16,23
+g2g_cleanser_trial_06,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1000,16,23
+g2g_cleanser_trial_07,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1061,16,23
+g2g_cleanser_trial_08,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1184,16,23
+g2g_cleanser_trial_09,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,1113,16,23
+g2g_cleanser_trial_10,mlkit,50.33%,58.93%,36.36%,50.00%,42.11%,86.36%,93.75%,89.91%,743,16,22
+g2g_cleanser_trial_11,mlkit,50.20%,58.04%,39.13%,56.25%,46.15%,91.30%,100.00%,95.45%,980,16,23
