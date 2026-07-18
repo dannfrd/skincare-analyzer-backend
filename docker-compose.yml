@@ -10,7 +10,3 @@ services:
     environment:
       - TZ=Asia/Jakarta
     network_mode: "host"
-    deploy:
-      resources:
-        limits:
-          memory: 1536M
