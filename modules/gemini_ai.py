@@ -430,7 +430,7 @@ FORMAT JAWABAN WAJIB JSON VALID (TANPA teks lain):
     return {}
 
 
-def extract_ingredients_from_ocr(raw_text: str, timeout_seconds: int = 12) -> List[str]:
+def extract_ingredients_from_ocr(raw_text: str, timeout_seconds: int = 25) -> List[str]:
     """
     Uses Gemini AI to intelligently extract ONLY the ingredients list from messy OCR text.
     Ignores marketing fluff, directions, and warnings.
@@ -451,9 +451,9 @@ TUGAS ANDA:
 1. Temukan bagian yang berisi daftar "Ingredients" atau "Komposisi".
 2. Ekstrak HANYA nama-nama bahan tersebut.
 3. ABAIKAN teks lain seperti "Cara pakai", "Peringatan", "Netto", alamat pabrik, nomor BPOM, atau deskripsi produk.
-4. Jangan menambahkan nomor atau bullet point.
+4. Jangan menambahkan nomor urut list di awal baris (misal: "1. AQUA" -> salah, "AQUA" -> benar). TETAP PERTAHANKAN ANGKA DAN TANDA HUBUNG (hyphen) pada nama bahan kimia/surfaktan sebagaimana aslinya tanpa dihilangkan (misal: "PEG-40 HYDROGENATED CASTOR OIL", "POLYSORBATE 20", "BENZOPHENONE-3", "PPG-26-BUTETH-26", "CI 77891" wajib ditulis LENGKAP beserta angkanya).
 5. PISAHKAN (split) nama bahan yang tergabung atau rapat tanpa pemisah koma akibat kesalahan pemindaian OCR (misalnya: "AQUA(WATERLCOCONUTALKANES" harus dipecah menjadi "AQUA", "WATER", "COCONUT ALKANES"; "DIMETHICONEISODECYL" dipecah menjadi "DIMETHICONE", "ISODECYL"; "CROSSPOLYMER GLYCERIN" dipecah menjadi "CROSSPOLYMER", "GLYCERIN").
-6. Pastikan setiap string dalam JSON array mewakili SATU nama bahan kosmetik (INCI) standar saja.
+6. Pastikan setiap string dalam JSON array mewakili SATU nama bahan kosmetik (INCI) standar saja tanpa memotong angka spesifikasi kimiawi.
 
 TEKS OCR MENTAH:
 \"\"\"

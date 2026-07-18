@@ -107,8 +107,13 @@ def get_ingredient_simple_description(ingredient_name: str, client: Any = None) 
         else:
             simple_desc = ""
             
+        hit_payload_name = payload.get("name", ingredient_name)
+        nums_query = set(re.findall(r'\d+', ingredient_name))
+        nums_payload = set(re.findall(r'\d+', hit_payload_name))
+        final_name = ingredient_name.upper().strip() if (nums_query and not nums_payload) else hit_payload_name
+
         return {
-            "name": payload.get("name", ingredient_name),
+            "name": final_name,
             "simple_description": simple_desc,
             "functions": payload.get("functions", ""),
             "warnings": payload.get("warnings", ""),
@@ -226,6 +231,10 @@ def build_rag_context(
                 seen_names.add(name.upper())
                 
                 item_data = dict(payload)
+                nums_token = set(re.findall(r'\d+', token))
+                nums_payload = set(re.findall(r'\d+', str(payload.get("name", ""))))
+                if nums_token and not nums_payload:
+                    item_data["name"] = token.upper().strip()
                 item_data["token"] = token
                 item_data["match_type"] = f"semantic (score: {best_hit.score:.2f})"
                 selected_items.append(item_data)

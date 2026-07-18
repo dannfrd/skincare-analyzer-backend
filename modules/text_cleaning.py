@@ -11,12 +11,8 @@ class TextCleaner:
     """
     
     def __init__(self):
-        # Common OCR mistakes mapping (Tesseract sometimes confuses these)
+        # Common OCR mistakes mapping (excluding digits like 0->O or 1->I which break chemical suffixes like PEG-40 or 1,2-HEXANEDIOL)
         self.ocr_mistakes = {
-            'l': 'I',
-            '|': 'I',
-            '1': 'I',
-            '0': 'O',
             '\n': ' ', # Replace physical line breaks with spaces
             '[': ' ',
             ']': ' ',
@@ -41,6 +37,25 @@ class TextCleaner:
         # Keep letters, numbers, spaces, commas, hyphens, parentheses, and periods
         cleaned = re.sub(r'[^a-zA-Z0-9\s,\-\.\(\)]', '', text)
         return cleaned
+
+    def _normalize_token(self, token: str) -> str:
+        """
+        Normalizes individual ingredient tokens by fixing common OCR digit-letter misrecognitions
+        specifically inside chemical suffixes (e.g., PEG-4O -> PEG-40, CI 7547O -> CI 75470).
+        Also flattens any embedded line breaks or multi-spaces.
+        """
+        if not token:
+            return ""
+        # 1. Strip physical line breaks or multi-spaces within token (e.g. "PEG-4\nO" -> "PEG-4O")
+        norm = re.sub(r'[\r\n]+', '', token)
+        norm = re.sub(r'\s+', ' ', norm).strip(' .-\r\n')
+        
+        # 2. Fix digit + optional space/hyphen + O at word boundary (e.g. "4O" -> "40", "4 O" -> "40", "7547O" -> "75470")
+        norm = re.sub(r'(\d+)\s*O\b', r'\g<1>0', norm, flags=re.IGNORECASE)
+        # Fix cases where O is inside a number sequence like "7547O0" or "4O0"
+        norm = re.sub(r'(\d+)O(\d*)', r'\g<1>0\g<2>', norm, flags=re.IGNORECASE)
+        
+        return norm.upper()
 
     def extract_ingredient_text(self, raw_text: str) -> str:
         """
@@ -155,7 +170,7 @@ class TextCleaner:
         if use_ai:
             try:
                 from modules.gemini_ai import extract_ingredients_from_ocr
-                ai_ingredients = extract_ingredients_from_ocr(raw_text, timeout_seconds=10)
+                ai_ingredients = extract_ingredients_from_ocr(raw_text, timeout_seconds=25)
                 if ai_ingredients and len(ai_ingredients) > 0:
                     logger.info(
                         "Successfully extracted %s ingredients using AI.",
@@ -164,7 +179,7 @@ class TextCleaner:
                     cleaned_ingredients = []
                     seen = set()
                     for ingredient in ai_ingredients:
-                        normalized = re.sub(r'\s+', ' ', ingredient).strip(' .-')
+                        normalized = self._normalize_token(ingredient)
                         if len(normalized) <= 1 or normalized.isnumeric():
                             continue
                         if normalized in seen:
@@ -212,7 +227,7 @@ class TextCleaner:
         cleaned_ingredients = []
         seen = set()
         for ingredient in raw_ingredients:
-            normalized_ingredient = re.sub(r'\s+', ' ', ingredient).strip(' .-')
+            normalized_ingredient = self._normalize_token(ingredient)
             if len(normalized_ingredient) <= 1 or normalized_ingredient.isnumeric():
                 continue
             if normalized_ingredient in seen:
