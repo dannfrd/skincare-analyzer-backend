@@ -66,18 +66,7 @@ async def startup_event():
     except Exception as e:
         print(f"Error pre-loading SentenceTransformer: {e}")
 
-    engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
-    if engine in ("paddleocr_vl", "paddleocr_api", "paddleocr_cloud"):
-        print(f"PaddleOCR-VL Cloud API aktif (Model: {os.getenv('PADDLE_OCR_MODEL', 'PaddleOCR-VL-1.6')}).")
-    elif engine in ("paddleocr", "paddleocr_local"):
-        try:
-            from modules.paddleocr_service import PaddleOCRLocalProcessor
-            print("Pre-loading PaddleOCR Local (PP-OCRv4) engine...")
-            PaddleOCRLocalProcessor.get_instance()
-        except Exception as e:
-            print(f"Error pre-loading PaddleOCR Local: {e}")
-    else:
-        print("Tesseract OCR aktif (atau fallback default).")
+    print("OCR engine: On-Device (Google MLKit via Flutter). Backend hanya memproses teks.")
     print("="*50 + "\n")
 
 
