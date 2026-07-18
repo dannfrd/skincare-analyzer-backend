@@ -17,9 +17,18 @@ class IngredientMatcher:
             database_ingredients: List of dictionary objects representing the DB rows.
                                   Expected format: [{"id": 1, "name": "WATER", ...}, ...]
         """
-        self.db = database_ingredients
+        self.db = []
+        for ing in database_ingredients:
+            if 'name' in ing and ing['name']:
+                clean_name = re.sub(r'[\r\n]+', '', str(ing['name']))
+                clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+                clean_name = re.sub(r'(\d+)\s*O\b', r'\g<1>0', clean_name, flags=re.IGNORECASE)
+                clean_name = re.sub(r'(\d+)O(\d*)', r'\g<1>0\g<2>', clean_name, flags=re.IGNORECASE)
+                item = dict(ing)
+                item['name'] = clean_name.upper()
+                self.db.append(item)
         # Extract just the names (uppercase) for fast matching
-        self.known_names = [ing['name'].upper() for ing in self.db if 'name' in ing]
+        self.known_names = [ing['name'] for ing in self.db if 'name' in ing and ing['name']]
         
     def _find_best_match(self, token: str, threshold: float = 0.8) -> Optional[str]:
         """
@@ -47,8 +56,11 @@ class IngredientMatcher:
             # Rule 1: Number Guard (e.g. Polysorbate 20 vs Polysorbate 60, PEG-40 vs PEG-60)
             nums_token = set(re.findall(r'\d+', token_upper))
             nums_match = set(re.findall(r'\d+', match_name))
-            if nums_token and nums_match and nums_token != nums_match:
-                continue
+            if (nums_token or nums_match) and nums_token != nums_match:
+                if nums_token and nums_match:
+                    continue
+                if nums_match and not nums_token:
+                    continue
                 
             # Rule 2: Chemical Prefix & Root Guard
             token_words = set(token_upper.split())
@@ -110,11 +122,24 @@ class IngredientMatcher:
                     # Provide the original OCR text for debugging/transparency
                     result = dict(data) # copy to avoid modifying original db reference
                     result['ocr_token_used'] = token
+                    # PRESERVE CHEMICAL NUMBER SPECIFICATION (e.g., PEG-40 -> PEG parent family)
+                    nums_token = set(re.findall(r'\d+', token))
+                    nums_db = set(re.findall(r'\d+', best_match_name))
+                    if nums_token and not nums_db:
+                        clean_token = re.sub(r'[\r\n]+', '', token)
+                        clean_token = re.sub(r'\s+', ' ', clean_token).strip()
+                        clean_token = re.sub(r'(\d+)\s*O\b', r'\g<1>0', clean_token, flags=re.IGNORECASE)
+                        clean_token = re.sub(r'(\d+)O(\d*)', r'\g<1>0\g<2>', clean_token, flags=re.IGNORECASE)
+                        result['name'] = clean_token.upper()
                     matched_results.append(result)
             else:
                 logger.debug(f"No sufficient match found for token: '{token}'")
+                clean_token = re.sub(r'[\r\n]+', '', token)
+                clean_token = re.sub(r'\s+', ' ', clean_token).strip()
+                clean_token = re.sub(r'(\d+)\s*O\b', r'\g<1>0', clean_token, flags=re.IGNORECASE)
+                clean_token = re.sub(r'(\d+)O(\d*)', r'\g<1>0\g<2>', clean_token, flags=re.IGNORECASE)
                 matched_results.append({
-                    "name": token.upper(),
+                    "name": clean_token.upper(),
                     "status": "Unknown",
                     "comedogenic_rating": 0,
                     "is_allergen": False,

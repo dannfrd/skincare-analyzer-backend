@@ -335,6 +335,7 @@ class PaddleOCRLocalProcessor:
                     use_doc_orientation_classify=False,
                     use_doc_unwarping=False,      # Matikan doc_unwarping di CPU lokal agar tidak menahan proses hingga 3,5 menit
                     use_textline_orientation=True,
+                    det_limit_side_len=960,       # Batasi resolusi deteksi maksimum ke 960px untuk kecepatan eksekusi CPU (<3 detik)
                     text_det_thresh=0.1,          # Turunkan sensitivitas deteksi agar kontras lemah di tube silver tertangkap
                     text_det_box_thresh=0.3,      # Pertahankan kotak bounding box berukuran kecil
                     text_det_unclip_ratio=2.2,    # Perluas rasio unclip agar huruf pinggir tidak terpotong glare
@@ -411,8 +412,8 @@ class PaddleOCRLocalProcessor:
                 if isinstance(img_to_process, np.ndarray):
                     h, w = img_to_process.shape[:2]
                     max_dim = max(h, w)
-                    if max_dim > 1400:
-                        scale = 1400.0 / max_dim
+                    if max_dim > 960:
+                        scale = 960.0 / max_dim
                         new_w, new_h = int(w * scale), int(h * scale)
                         img_to_process = cv2.resize(img_to_process, (new_w, new_h), interpolation=cv2.INTER_AREA)
                         logger.debug(f"Resized image for fast CPU PaddleOCR: {w}x{h} -> {new_w}x{new_h}")

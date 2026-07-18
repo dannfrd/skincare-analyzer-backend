@@ -1,4 +1,9 @@
-import pytesseract
+pytesseract = None
+try:
+    import pytesseract
+except ImportError:
+    pass
+
 import numpy as np
 import logging
 import os
@@ -17,6 +22,9 @@ class OCRProcessor:
                       3 = Fully automatic page segmentation (default)
                       6 = Assume a single uniform block of text (good for lists)
         """
+        if pytesseract is None:
+            raise RuntimeError("Library 'pytesseract' tidak terpasang. Silakan install dengan 'pip install pytesseract' jika ingin menggunakan Tesseract OCR.")
+
         # Configure tesseract parameters
         # --oem 3: Default LSTM OCR Engine
         # --psm N: Page segmentation mode
@@ -26,6 +34,7 @@ class OCRProcessor:
         tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
         if tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+
         
         # IMPORTANT: Ensure Tesseract is installed on the system.
         # If tesseract is not in PATH (e.g., Windows), you must specify the path here:
