@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, text
+from database.db_connection import DATABASE_URL
 
-engine = create_engine('mysql+pymysql://root:@127.0.0.1/skincare_analyzer')
-
+engine = create_engine(DATABASE_URL)
 try:
     with engine.begin() as conn:
         print("Mulai pembersihan data sampah (dangling data)...")
