@@ -375,6 +375,7 @@ class ProductSummaryResponse(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     barcode: Optional[str] = None
+    image_url: Optional[str] = None
     scan_count: int = 0
     analysis_count: int = 0
     created_at: Optional[str] = None
@@ -1247,6 +1248,7 @@ class ProductCreateRequest(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     barcode: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class ProductUpdateRequest(BaseModel):
@@ -1254,11 +1256,18 @@ class ProductUpdateRequest(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     barcode: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 @app.post("/admin/products", dependencies=[Depends(require_monitoring_access)])
 def admin_create_product(payload: ProductCreateRequest, db=Depends(get_db_connection)):
-    product_id = db.create_product(payload.name.strip(), (payload.brand or '').strip() or None, (payload.category or '').strip() or None, (payload.barcode or '').strip() or None)
+    product_id = db.create_product(
+        payload.name.strip(),
+        (payload.brand or '').strip() or None,
+        (payload.category or '').strip() or None,
+        (payload.barcode or '').strip() or None,
+        (payload.image_url or '').strip() or None,
+    )
     if not product_id:
         raise HTTPException(status_code=500, detail="Failed to create product")
     return {"id": product_id}
@@ -1274,7 +1283,7 @@ def admin_get_product(product_id: int, db=Depends(get_db_connection)):
 
 @app.put("/admin/products/{product_id}", dependencies=[Depends(require_monitoring_access)])
 def admin_update_product(product_id: int, payload: ProductUpdateRequest, db=Depends(get_db_connection)):
-    ok = db.update_product(product_id, payload.name, payload.brand, payload.category, payload.barcode)
+    ok = db.update_product(product_id, payload.name, payload.brand, payload.category, payload.barcode, payload.image_url)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to update product")
     return {"status": "ok"}

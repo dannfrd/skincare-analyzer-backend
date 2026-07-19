@@ -208,6 +208,8 @@ ALTER TABLE analyses
     ADD COLUMN ai_output LONGTEXT;
 ALTER TABLE analyses
     ADD COLUMN raw_result LONGTEXT;
+ALTER TABLE products
+    ADD COLUMN image_url VARCHAR(255) NULL AFTER description;
 ALTER TABLE users
     ADD COLUMN profile_picture VARCHAR(255) NULL AFTER firebase_uid;
 ALTER TABLE users
