@@ -68,7 +68,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, to_email, msg.as_string())
+        server.sendmail(msg["From"], to_email, msg.as_string())
         server.quit()
         
         logger.info(f"OTP email successfully sent to {to_email}")
