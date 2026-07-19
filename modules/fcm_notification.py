@@ -71,7 +71,7 @@ def send_notification(title: str, body: str, data: dict | None = None, topic: st
             tokens=tokens_list,
             data=data or {}
         )
-        response = messaging.send_multicast(multicast)
+        response = messaging.send_each_for_multicast(multicast)
         # Return a simple dict summary
         return {
             "success_count": response.success_count,
