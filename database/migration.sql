@@ -210,6 +210,10 @@ ALTER TABLE analyses
     ADD COLUMN raw_result LONGTEXT;
 ALTER TABLE users
     ADD COLUMN profile_picture VARCHAR(255) NULL AFTER firebase_uid;
+ALTER TABLE users
+    ADD COLUMN fcm_token TEXT NULL AFTER profile_picture;
+ALTER TABLE users
+    ADD COLUMN device_token TEXT NULL AFTER fcm_token;
 
 DELETE duplicate_detail
 FROM analysis_details duplicate_detail

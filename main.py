@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 import shutil
 import os
 import time
@@ -33,7 +33,7 @@ from database.db_connection import get_db_connection
 from modules.fcm_notification import send_notification
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image, extract_text_from_image_path
-from modules.auth_api import router as auth_router
+from modules.auth_api import get_password_hash, router as auth_router
 from sqlalchemy import text
 
 API_MONITORING_KEY = os.getenv("MONITORING_API_KEY")
@@ -360,6 +360,10 @@ class UserSummaryResponse(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     provider: Optional[str] = None
+    firebase_uid: Optional[str] = None
+    profile_picture: Optional[str] = None
+    fcm_token: Optional[str] = None
+    device_token: Optional[str] = None
     analysis_count: int = 0
     last_analysis_at: Optional[str] = None
     created_at: Optional[str] = None
@@ -1072,6 +1076,144 @@ def metrics_users(
     return db.get_users(limit=limit)
 
 
+class AdminUserCreateRequest(BaseModel):
+    name: Optional[str] = None
+    email: EmailStr
+    password: str
+    role: Optional[str] = "user"
+    provider: Optional[str] = "manual"
+    firebase_uid: Optional[str] = None
+
+
+class AdminUserUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    provider: Optional[str] = None
+    firebase_uid: Optional[str] = None
+    profile_picture: Optional[str] = None
+    fcm_token: Optional[str] = None
+    device_token: Optional[str] = None
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _validate_admin_user_password(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password minimal 8 karakter")
+
+
+@app.get("/admin/users", dependencies=[Depends(require_monitoring_access)])
+def admin_list_users(limit: int = Query(default=1000, ge=1, le=5000), db=Depends(get_db_connection)):
+    return {"items": db.get_users(limit=limit)}
+
+
+@app.post("/admin/users", dependencies=[Depends(require_monitoring_access)])
+def admin_create_user(payload: AdminUserCreateRequest, db=Depends(get_db_connection)):
+    email = str(payload.email).strip().lower()
+    if db.get_admin_user_by_email(email):
+        raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+
+    _validate_admin_user_password(payload.password)
+    user_id = db.create_admin_user(
+        name=_normalize_optional_text(payload.name),
+        email=email,
+        password_hash=get_password_hash(payload.password),
+        role=_normalize_optional_text(payload.role) or "user",
+        provider=_normalize_optional_text(payload.provider) or "manual",
+        firebase_uid=_normalize_optional_text(payload.firebase_uid),
+    )
+    if not user_id:
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+    return db.get_admin_user_by_id(user_id) or {"id": user_id}
+
+
+@app.get("/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_get_user(user_id: int, db=Depends(get_db_connection)):
+    user = db.get_admin_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.put("/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_update_user(user_id: int, payload: AdminUserUpdateRequest, db=Depends(get_db_connection)):
+    user = db.get_admin_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    email = str(payload.email).strip().lower() if payload.email else None
+    if email:
+        existing = db.get_admin_user_by_email(email)
+        if existing and int(existing.get("id") or 0) != user_id:
+            raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+
+    password_hash = None
+    if payload.password is not None and payload.password.strip():
+        _validate_admin_user_password(payload.password)
+        password_hash = get_password_hash(payload.password)
+
+    ok = db.update_admin_user(
+        user_id=user_id,
+        name=_normalize_optional_text(payload.name),
+        email=email,
+        password_hash=password_hash,
+        role=_normalize_optional_text(payload.role),
+        provider=_normalize_optional_text(payload.provider),
+        firebase_uid=_normalize_optional_text(payload.firebase_uid),
+        profile_picture=_normalize_optional_text(payload.profile_picture),
+        fcm_token=_normalize_optional_text(payload.fcm_token),
+        device_token=_normalize_optional_text(payload.device_token),
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update user")
+
+    return db.get_admin_user_by_id(user_id) or {"id": user_id}
+
+
+@app.delete("/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_delete_user(user_id: int, db=Depends(get_db_connection)):
+    user = db.get_admin_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ok = db.delete_admin_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+    return {"status": "deleted"}
+
+
+@app.get("/api/dermify/admin/users", dependencies=[Depends(require_monitoring_access)])
+def alias_list_users(limit: int = Query(default=1000, ge=1, le=5000), db=Depends(get_db_connection)):
+    return admin_list_users(limit, db)
+
+
+@app.post("/api/dermify/admin/users", dependencies=[Depends(require_monitoring_access)])
+def alias_create_user(payload: AdminUserCreateRequest, db=Depends(get_db_connection)):
+    return admin_create_user(payload, db)
+
+
+@app.get("/api/dermify/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_get_user(user_id: int, db=Depends(get_db_connection)):
+    return admin_get_user(user_id, db)
+
+
+@app.put("/api/dermify/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_update_user(user_id: int, payload: AdminUserUpdateRequest, db=Depends(get_db_connection)):
+    return admin_update_user(user_id, payload, db)
+
+
+@app.delete("/api/dermify/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_delete_user(user_id: int, db=Depends(get_db_connection)):
+    return admin_delete_user(user_id, db)
+
+
 @app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
 def metrics_analyses(
     limit: int = Query(default=1000, ge=1, le=5000),
@@ -1230,10 +1372,82 @@ class NotificationCreateRequest(BaseModel):
     # Accept either an object/dict or a JSON string from the frontend
     data: Optional[object] = None
     topic: Optional[str] = None
+    user_id: Optional[int] = None
+    target_user_id: Optional[int] = None
     # Accept either a list of tokens or a JSON string
     tokens: Optional[object] = None
     status: Optional[str] = "draft"
     scheduled_at: Optional[str] = None
+
+
+def _normalize_notification_tokens(tokens_field: Any) -> Optional[List[str]]:
+    if tokens_field is None:
+        return None
+    if isinstance(tokens_field, str):
+        try:
+            tokens_field = json.loads(tokens_field)
+        except Exception:
+            tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
+    if isinstance(tokens_field, list):
+        tokens = [str(token).strip() for token in tokens_field if str(token).strip()]
+        return tokens or None
+    return None
+
+
+def _extract_target_user_id(payload: Dict[str, Any], data_field: Any = None) -> Optional[int]:
+    raw_target = payload.get("target_user_id") or payload.get("user_id")
+    if raw_target is None and isinstance(data_field, dict):
+        raw_target = data_field.get("target_user_id") or data_field.get("user_id")
+    if raw_target in (None, ""):
+        return None
+    try:
+        target_user_id = int(raw_target)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="target_user_id harus berupa angka")
+    if target_user_id <= 0:
+        raise HTTPException(status_code=400, detail="target_user_id tidak valid")
+    return target_user_id
+
+
+def _prepare_notification_target(
+    payload: Dict[str, Any],
+    data_field: Any,
+    topic: Optional[str],
+    tokens_field: Optional[List[str]],
+    db,
+    require_tokens: bool = False,
+) -> tuple[Any, Optional[str], Optional[List[str]], Optional[int]]:
+    target_user_id = _extract_target_user_id(payload, data_field)
+    if not target_user_id:
+        return data_field, topic, tokens_field, None
+
+    if not isinstance(data_field, dict):
+        data_field = {} if data_field in (None, "") else {"payload": str(data_field)}
+
+    data_field["target_user_id"] = target_user_id
+    data_field["user_id"] = target_user_id
+
+    target_user = db.get_admin_user_by_id(target_user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+
+    resolved_tokens = tokens_field or db.get_user_notification_tokens(target_user_id)
+    if require_tokens and not resolved_tokens:
+        raise HTTPException(
+            status_code=400,
+            detail="User ini belum punya token notifikasi. Login dari aplikasi mobile dulu atau simpan FCM token user.",
+        )
+
+    return data_field, None, resolved_tokens, target_user_id
+
+
+def _stringify_fcm_data(data_field: Any) -> Dict[str, str]:
+    fcm_data: Dict[str, str] = {}
+    if data_field and isinstance(data_field, dict):
+        for k, v in data_field.items():
+            if v is not None:
+                fcm_data[str(k)] = str(v)
+    return fcm_data
 
 
 @app.get("/admin/notifications", dependencies=[Depends(require_monitoring_access)])
@@ -1279,20 +1493,18 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
     if isinstance(topic, str):
         topic = topic.strip() or None
 
-    tokens_field = payload.get("tokens")
-    if isinstance(tokens_field, str):
-        try:
-            tokens_field = json.loads(tokens_field)
-        except Exception:
-            # attempt simple split
-            try:
-                tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
-            except Exception:
-                tokens_field = None
-
     status = payload.get("status") or "draft"
     scheduled_at = payload.get("scheduled_at")
     send_now = bool(payload.get("send_now"))
+    tokens_field = _normalize_notification_tokens(payload.get("tokens"))
+    data_field, topic, tokens_field, _ = _prepare_notification_target(
+        payload=payload,
+        data_field=data_field,
+        topic=topic,
+        tokens_field=tokens_field,
+        db=db,
+        require_tokens=send_now,
+    )
 
     # If send_now is true, default initial status to 'draft' before triggering FCM
     initial_status = "draft" if send_now else status
@@ -1313,11 +1525,7 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
     sent_success = False
     fcm_response = None
     if send_now:
-        fcm_data = {}
-        if data_field and isinstance(data_field, dict):
-            for k, v in data_field.items():
-                if v is not None:
-                    fcm_data[str(k)] = str(v)
+        fcm_data = _stringify_fcm_data(data_field)
         try:
             fcm_response = send_notification(
                 title=title,
@@ -1349,12 +1557,21 @@ def admin_send_notification(notification_id: int, db=Depends(get_db_connection))
     data = n.get("data")
     topic = n.get("topic")
     tokens = n.get("tokens")
+    _, topic, tokens, target_user_id = _prepare_notification_target(
+        payload={},
+        data_field=data,
+        topic=topic,
+        tokens_field=_normalize_notification_tokens(tokens),
+        db=db,
+        require_tokens=False,
+    )
+    if target_user_id and not tokens:
+        raise HTTPException(
+            status_code=400,
+            detail="User ini belum punya token notifikasi. Login dari aplikasi mobile dulu atau simpan FCM token user.",
+        )
 
-    fcm_data = {}
-    if data and isinstance(data, dict):
-        for k, v in data.items():
-            if v is not None:
-                fcm_data[str(k)] = str(v)
+    fcm_data = _stringify_fcm_data(data)
 
     try:
         response = send_notification(
@@ -1405,19 +1622,18 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
     if isinstance(topic, str):
         topic = topic.strip() or None
 
-    tokens_field = payload.get("tokens")
-    if isinstance(tokens_field, str):
-        try:
-            tokens_field = json.loads(tokens_field)
-        except Exception:
-            try:
-                tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
-            except Exception:
-                tokens_field = None
-
     status = payload.get("status") or n.get("status") or "draft"
     scheduled_at = payload.get("scheduled_at")
     send_now = bool(payload.get("send_now"))
+    tokens_field = _normalize_notification_tokens(payload.get("tokens"))
+    data_field, topic, tokens_field, _ = _prepare_notification_target(
+        payload=payload,
+        data_field=data_field,
+        topic=topic,
+        tokens_field=tokens_field,
+        db=db,
+        require_tokens=send_now,
+    )
 
     if send_now:
         status = "draft"
@@ -1439,11 +1655,7 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
     sent_success = False
     fcm_response = None
     if send_now:
-        fcm_data = {}
-        if data_field and isinstance(data_field, dict):
-            for k, v in data_field.items():
-                if v is not None:
-                    fcm_data[str(k)] = str(v)
+        fcm_data = _stringify_fcm_data(data_field)
         try:
             fcm_response = send_notification(
                 title=title,
