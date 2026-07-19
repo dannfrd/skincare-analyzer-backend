@@ -772,6 +772,9 @@ class DatabaseConnection:
                             tokens_val = json.loads(tokens_val)
                         except Exception:
                             pass
+                    target_user_id = None
+                    if isinstance(data_val, dict):
+                        target_user_id = data_val.get("target_user_id") or data_val.get("user_id")
 
                     results.append({
                         "id": row.get("id"),
@@ -780,6 +783,8 @@ class DatabaseConnection:
                         "data": data_val,
                         "topic": row.get("topic"),
                         "tokens": tokens_val,
+                        "user_id": target_user_id,
+                        "target_user_id": target_user_id,
                         "status": row.get("status"),
                         "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
                         "sent_at": self._to_iso_datetime(row.get("sent_at")),
@@ -817,6 +822,9 @@ class DatabaseConnection:
                         tokens_val = json.loads(tokens_val)
                     except Exception:
                         pass
+                target_user_id = None
+                if isinstance(data_val, dict):
+                    target_user_id = data_val.get("target_user_id") or data_val.get("user_id")
 
                 return {
                     "id": row.get("id"),
@@ -825,6 +833,8 @@ class DatabaseConnection:
                     "data": data_val,
                     "topic": row.get("topic"),
                     "tokens": tokens_val,
+                    "user_id": target_user_id,
+                    "target_user_id": target_user_id,
                     "status": row.get("status"),
                     "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
                     "sent_at": self._to_iso_datetime(row.get("sent_at")),
@@ -1706,6 +1716,238 @@ class DatabaseConnection:
         except Exception as e:
             logger.error(f"Error fetching user list: {e}")
             return []
+
+    def _available_user_columns(self, conn) -> set[str]:
+        rows = conn.execute(text("SHOW COLUMNS FROM users")).mappings().all()
+        return {str(row.get("Field")) for row in rows if row.get("Field")}
+
+    def _normalize_admin_user(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        user = dict(row)
+        user.pop("password", None)
+        for key in ("role", "provider", "firebase_uid", "profile_picture", "fcm_token", "device_token"):
+            user.setdefault(key, None)
+        user["created_at"] = self._to_iso_datetime(user.get("created_at"))
+        user.setdefault("analysis_count", 0)
+        user.setdefault("last_analysis_at", None)
+        return user
+
+    def get_admin_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return None
+
+                columns = self._available_user_columns(conn)
+                allowed = [
+                    "id",
+                    "name",
+                    "email",
+                    "role",
+                    "provider",
+                    "firebase_uid",
+                    "profile_picture",
+                    "fcm_token",
+                    "device_token",
+                    "created_at",
+                ]
+                select_columns = [column for column in allowed if column in columns]
+                if not {"id", "email"}.issubset(select_columns):
+                    return None
+
+                row = conn.execute(text(
+                    f"SELECT {', '.join(select_columns)} FROM users WHERE id = :id LIMIT 1"
+                ), {"id": user_id}).mappings().first()
+
+                return self._normalize_admin_user(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching admin user by id: {e}")
+            return None
+
+    def get_admin_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return None
+                row = conn.execute(text(
+                    "SELECT id, name, email, role, provider, created_at FROM users WHERE email = :email LIMIT 1"
+                ), {"email": email}).mappings().first()
+                return self._normalize_admin_user(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching admin user by email: {e}")
+            return None
+
+    def create_admin_user(
+        self,
+        name: Optional[str],
+        email: str,
+        password_hash: str,
+        role: Optional[str] = "user",
+        provider: Optional[str] = "manual",
+        firebase_uid: Optional[str] = None,
+    ) -> Optional[int]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.begin() as conn:
+                if not self._table_exists(conn, "users"):
+                    return None
+
+                columns = self._available_user_columns(conn)
+                payload = {
+                    "name": name,
+                    "email": email,
+                    "password": password_hash,
+                    "role": role or "user",
+                    "provider": provider or "manual",
+                    "firebase_uid": firebase_uid,
+                }
+                insert_payload = {key: value for key, value in payload.items() if key in columns}
+                if "email" not in insert_payload or "password" not in insert_payload:
+                    return None
+
+                column_sql = ", ".join(insert_payload.keys())
+                value_sql = ", ".join(f":{key}" for key in insert_payload.keys())
+                insert = conn.execute(text(
+                    f"INSERT INTO users ({column_sql}) VALUES ({value_sql})"
+                ), insert_payload)
+                return insert.lastrowid
+        except Exception as e:
+            logger.error(f"Error creating admin user: {e}")
+            return None
+
+    def update_admin_user(
+        self,
+        user_id: int,
+        name: Optional[str] = None,
+        email: Optional[str] = None,
+        password_hash: Optional[str] = None,
+        role: Optional[str] = None,
+        provider: Optional[str] = None,
+        firebase_uid: Optional[str] = None,
+        profile_picture: Optional[str] = None,
+        fcm_token: Optional[str] = None,
+        device_token: Optional[str] = None,
+    ) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                if not self._table_exists(conn, "users"):
+                    return False
+
+                columns = self._available_user_columns(conn)
+                payload = {
+                    "name": name,
+                    "email": email,
+                    "password": password_hash,
+                    "role": role,
+                    "provider": provider,
+                    "firebase_uid": firebase_uid,
+                    "profile_picture": profile_picture,
+                    "fcm_token": fcm_token,
+                    "device_token": device_token,
+                }
+                updates = []
+                params: Dict[str, Any] = {"id": user_id}
+                for key, value in payload.items():
+                    if value is None or key not in columns:
+                        continue
+                    updates.append(f"{key} = :{key}")
+                    params[key] = value
+
+                if not updates:
+                    return True
+
+                conn.execute(text(
+                    "UPDATE users SET " + ", ".join(updates) + " WHERE id = :id"
+                ), params)
+                return True
+        except Exception as e:
+            logger.error(f"Error updating admin user: {e}")
+            return False
+
+    def delete_admin_user(self, user_id: int) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                if not self._table_exists(conn, "users"):
+                    return False
+                conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting admin user: {e}")
+            return False
+
+    def get_user_notification_tokens(self, user_id: int) -> List[str]:
+        if not self.engine:
+            return []
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return []
+
+                tokens: List[str] = []
+                user_columns = self._available_user_columns(conn)
+                token_columns = [column for column in ("fcm_token", "device_token") if column in user_columns]
+                if token_columns:
+                    row = conn.execute(text(
+                        f"SELECT {', '.join(token_columns)} FROM users WHERE id = :id LIMIT 1"
+                    ), {"id": user_id}).mappings().first()
+                    if row:
+                        for value in row.values():
+                            if value:
+                                tokens.extend(self._normalize_token_values(value))
+
+                for table_name in ("user_devices", "device_tokens", "user_device_tokens"):
+                    if not self._table_exists(conn, table_name):
+                        continue
+
+                    columns = {
+                        str(row.get("Field"))
+                        for row in conn.execute(text(f"SHOW COLUMNS FROM {table_name}")).mappings().all()
+                        if row.get("Field")
+                    }
+                    user_column = "user_id" if "user_id" in columns else None
+                    token_column = next(
+                        (column for column in ("fcm_token", "device_token", "token") if column in columns),
+                        None,
+                    )
+                    if not user_column or not token_column:
+                        continue
+
+                    rows = conn.execute(text(
+                        f"SELECT {token_column} AS token FROM {table_name} WHERE {user_column} = :id"
+                    ), {"id": user_id}).mappings().all()
+                    for row in rows:
+                        tokens.extend(self._normalize_token_values(row.get("token")))
+
+                return list(dict.fromkeys(token for token in tokens if token))
+        except Exception as e:
+            logger.error(f"Error fetching user notification tokens: {e}")
+            return []
+
+    def _normalize_token_values(self, value: Any) -> List[str]:
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                pass
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return [str(value).strip()]
 
     def get_analyses(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Returns a list of analyses with related user and product context."""
