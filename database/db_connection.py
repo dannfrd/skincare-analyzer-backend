@@ -2118,6 +2118,7 @@ class DatabaseConnection:
                         p.brand,
                         p.category,
                         p.barcode,
+                        p.image_url,
                         p.created_at,
                         COUNT(DISTINCT s.id) AS scan_count,
                         COUNT(DISTINCT a.id) AS analysis_count
@@ -2130,6 +2131,7 @@ class DatabaseConnection:
                         p.brand,
                         p.category,
                         p.barcode,
+                        p.image_url,
                         p.created_at
                     ORDER BY p.created_at DESC
                     LIMIT :limit
@@ -2145,6 +2147,7 @@ class DatabaseConnection:
                         "brand": row.get("brand"),
                         "category": row.get("category"),
                         "barcode": row.get("barcode"),
+                        "image_url": row.get("image_url"),
                         "scan_count": row.get("scan_count") or 0,
                         "analysis_count": row.get("analysis_count") or 0,
                         "created_at": self._to_iso_datetime(row.get("created_at")),
@@ -2164,7 +2167,7 @@ class DatabaseConnection:
                 if not self._table_exists(conn, "products"):
                     return None
                 row = conn.execute(text(
-                    "SELECT id, name, brand, category, barcode, created_at FROM products WHERE id = :id LIMIT 1"
+                    "SELECT id, name, brand, category, barcode, image_url, created_at FROM products WHERE id = :id LIMIT 1"
                 ), {"id": product_id}).mappings().first()
                 if not row:
                     return None
@@ -2174,31 +2177,33 @@ class DatabaseConnection:
                     "brand": row.get("brand"),
                     "category": row.get("category"),
                     "barcode": row.get("barcode"),
+                    "image_url": row.get("image_url"),
                     "created_at": self._to_iso_datetime(row.get("created_at")),
                 }
         except Exception as e:
             logger.error(f"Error fetching product by id: {e}")
             return None
 
-    def create_product(self, name: str, brand: Optional[str], category: Optional[str], barcode: Optional[str]) -> Optional[int]:
+    def create_product(self, name: str, brand: Optional[str], category: Optional[str], barcode: Optional[str], image_url: Optional[str] = None) -> Optional[int]:
         if not self.engine:
             return None
         try:
             with self.engine.begin() as conn:
                 insert = conn.execute(text(
-                    "INSERT INTO products (name, brand, category, barcode, created_at) VALUES (:name, :brand, :category, :barcode, NOW())"
+                    "INSERT INTO products (name, brand, category, barcode, image_url, created_at) VALUES (:name, :brand, :category, :barcode, :image_url, NOW())"
                 ), {
                     "name": name,
                     "brand": brand,
                     "category": category,
                     "barcode": barcode,
+                    "image_url": image_url,
                 })
                 return insert.lastrowid
         except Exception as e:
             logger.error(f"Error creating product: {e}")
             return None
 
-    def update_product(self, product_id: int, name: Optional[str], brand: Optional[str], category: Optional[str], barcode: Optional[str]) -> bool:
+    def update_product(self, product_id: int, name: Optional[str], brand: Optional[str], category: Optional[str], barcode: Optional[str], image_url: Optional[str] = None) -> bool:
         if not self.engine:
             return False
         try:
@@ -2218,6 +2223,9 @@ class DatabaseConnection:
                 if barcode is not None:
                     updates.append("barcode = :barcode")
                     params["barcode"] = barcode
+                if image_url is not None:
+                    updates.append("image_url = :image_url")
+                    params["image_url"] = image_url
 
                 if not updates:
                     return True
