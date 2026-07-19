@@ -230,6 +230,7 @@ class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
     profile_picture: Optional[str] = None
     password: Optional[str] = None
+    fcm_token: Optional[str] = None
 
 
 @app.post("/profile/update")
@@ -256,7 +257,8 @@ def update_profile(request_data: UpdateProfileRequest, request: Request, db=Depe
                     name = COALESCE(NULLIF(:name, ''), name),
                     email = COALESCE(NULLIF(:email, ''), email),
                     profile_picture = COALESCE(NULLIF(:profile_picture, ''), profile_picture),
-                    password = COALESCE(NULLIF(:password, ''), password)
+                    password = COALESCE(NULLIF(:password, ''), password),
+                    fcm_token = COALESCE(NULLIF(:fcm_token, ''), fcm_token)
                 WHERE id = :user_id
                 """
             ), {
@@ -264,6 +266,7 @@ def update_profile(request_data: UpdateProfileRequest, request: Request, db=Depe
                 "email": request_data.email or "",
                 "profile_picture": incoming_pp or "",
                 "password": request_data.password or "",
+                "fcm_token": request_data.fcm_token or "",
                 "user_id": user_id,
             })
 
