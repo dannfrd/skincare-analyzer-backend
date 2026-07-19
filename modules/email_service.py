@@ -36,16 +36,25 @@ def send_otp_email(to_email: str, otp: str) -> bool:
 
         text_content = f"Halo,\n\nKode OTP Anda untuk mereset password adalah: {otp}\n\nKode ini berlaku selama 10 menit.\n\nTim Dermify"
         html_content = f"""\
+        <!DOCTYPE html>
         <html>
-          <body>
-            <h2>Reset Password Dermify</h2>
-            <p>Halo,</p>
-            <p>Anda menerima email ini karena ada permintaan untuk mereset password akun Anda.</p>
-            <p>Berikut adalah kode OTP Anda:</p>
-            <h1 style="color: #4CB35B; font-size: 36px; letter-spacing: 5px;">{otp}</h1>
-            <p>Kode ini hanya berlaku selama 10 menit. Jika Anda tidak meminta reset password, abaikan email ini.</p>
-            <br>
-            <p>Salam hangat,<br>Tim Dermify</p>
+          <head>
+            <meta charset="utf-8">
+          </head>
+          <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h2 style="color: #333333; margin-top: 0;">Reset Password Akun Dermify</h2>
+                <p style="color: #555555; line-height: 1.5;">Halo,</p>
+                <p style="color: #555555; line-height: 1.5;">Kami menerima permintaan untuk mereset password akun Anda di aplikasi Dermify. Berikut adalah kode OTP Anda:</p>
+                <div style="background-color: #f9f9f9; padding: 15px; text-align: center; border-radius: 6px; margin: 25px 0;">
+                    <h1 style="color: #4CB35B; font-size: 40px; margin: 0; letter-spacing: 8px;">{otp}</h1>
+                </div>
+                <p style="color: #555555; line-height: 1.5;">Kode OTP ini hanya berlaku selama <strong>10 menit</strong>.</p>
+                <p style="color: #888888; font-size: 12px; margin-top: 30px; border-top: 1px solid #eeeeee; padding-top: 20px;">
+                    Jika Anda tidak pernah meminta reset password, mohon abaikan email ini. Pastikan akun Anda tetap aman.<br><br>
+                    &copy; 2026 Dermify App. All rights reserved.
+                </p>
+            </div>
           </body>
         </html>
         """
