@@ -83,6 +83,7 @@ class DatabaseConnection:
         product_name: Optional[str] = None,
         product_brand: Optional[str] = None,
         product_category: Optional[str] = None,
+        image_url: Optional[str] = None,
     ) -> Optional[int]:
         """
         Simpan satu hasil scan ke seluruh tabel relasional dalam satu transaksi.
@@ -137,11 +138,12 @@ class DatabaseConnection:
                 scan_insert = conn.execute(text(
                     """
                     INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
-                    VALUES (:user_id, :product_id, NULL, :extracted_text, NOW())
+                    VALUES (:user_id, :product_id, :image_url, :extracted_text, NOW())
                     """
                 ), {
                     "user_id": resolved_user_id,
                     "product_id": product_id,
+                    "image_url": image_url,
                     "extracted_text": raw_text,
                 })
                 scan_id = scan_insert.lastrowid
@@ -1132,6 +1134,25 @@ class DatabaseConnection:
                             a.recommendation,
                             a.status,
                             a.overall_score,
+    def get_recent_analysis_results(self, limit: int = 15) -> List[Dict[str, Any]]:
+        """Returns the most recent analysis result rows."""
+        if not self.engine:
+            return []
+
+        limit = max(1, min(limit, 100))
+
+        try:
+            with self.engine.connect() as conn:
+                if self._table_exists(conn, "analyses"):
+                    query = text(
+                        """
+                        SELECT
+                            a.id,
+                            a.scan_id,
+                            a.summary,
+                            a.recommendation,
+                            a.status,
+                            a.overall_score,
                             a.classification,
                             a.warnings_count,
                             a.unknown_count,
@@ -1139,6 +1160,39 @@ class DatabaseConnection:
                             a.ai_output,
                             a.created_at,
                             s.extracted_text,
+                            s.image_url,
+                            u.id AS user_id,
+                            u.name AS user_name,
+                            u.email AS user_email,
+                            p.id AS product_id,
+                            p.name AS product_name,
+                            p.brand AS product_brand,
+                            p.category AS product_category,
+                            COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
+                            GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients,
+                            COUNT(DISTINCT ad.id) AS detail_count
+                        FROM analyses a
+                        LEFT JOIN scans s ON s.id = a.scan_id
+                        LEFT JOIN users u ON u.id = s.user_id
+                        LEFT JOIN products p ON p.id = s.product_id
+                        LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                        LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                        LEFT JOIN analysis_details ad ON ad.analysis_id = a.id
+                        GROUP BY
+                            a.id,
+                            a.scan_id,
+                            a.summary,
+                            a.recommendation,
+                            a.status,
+                            a.overall_score,
+                            a.classification,
+                            a.warnings_count,
+                            a.unknown_count,
+                            a.ai_model,
+                            a.ai_output,
+                            a.created_at,
+                            s.extracted_text,
+                            s.image_url,
                             u.id,
                             u.name,
                             u.email,
@@ -1168,6 +1222,7 @@ class DatabaseConnection:
                             "id": row.get("id"),
                             "scan_id": row.get("scan_id"),
                             "raw_text": row.get("extracted_text"),
+                            "image_url": row.get("image_url"),
                             "summary": row.get("summary"),
                             "recommendation": row.get("recommendation"),
                             "status": row.get("status"),
@@ -1266,6 +1321,7 @@ class DatabaseConnection:
                     # Always include joined context columns
                     cols.extend([
                         "s.extracted_text",
+                        "s.image_url",
                         "u.id AS user_id",
                         "u.name AS user_name",
                         "u.email AS user_email",
@@ -1421,6 +1477,7 @@ class DatabaseConnection:
                         "id": base_row.get("id"),
                         "scan_id": base_row.get("scan_id"),
                         "raw_text": base_row.get("extracted_text"),
+                        "image_url": base_row.get("image_url"),
                         "summary": base_row.get("summary"),
                         "recommendation": base_row.get("recommendation"),
                         "status": base_row.get("status"),
@@ -1490,945 +1547,10 @@ class DatabaseConnection:
             logger.error(f"Error fetching analysis detail for ID {analysis_id}: {e}")
             return None
 
-    def get_ingredient_summary(self) -> Dict[str, Any]:
-        """Returns risk-oriented counts from the ingredients table for old/new schema."""
-        summary = {
-            "total": 0,
-            "allergens": 0,
-            "unsafe_for_pregnancy": 0,
-            "high_comedogenic": 0,
-            "average_comedogenic_rating": None,
-            "last_updated_at": None,
-            "low_risk": 0,
-            "medium_risk": 0,
-            "high_risk": 0,
-            "unknown_risk": 0,
-            "by_risk_level": {},
-        }
-
-        if not self.engine:
-            return summary
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "ingredients"):
-                    return summary
-
-                has_legacy_columns = (
-                    self._column_exists(conn, "ingredients", "is_allergen")
-                    and self._column_exists(conn, "ingredients", "unsafe_for_pregnancy")
-                    and self._column_exists(conn, "ingredients", "comedogenic_rating")
-                )
-
-                if has_legacy_columns:
-                    stats = conn.execute(text(
-                        """
-                        SELECT COUNT(*) AS total,
-                               SUM(CASE WHEN is_allergen = 1 THEN 1 ELSE 0 END) AS allergens,
-                               SUM(CASE WHEN unsafe_for_pregnancy = 1 THEN 1 ELSE 0 END) AS unsafe,
-                               SUM(CASE WHEN comedogenic_rating >= 4 THEN 1 ELSE 0 END) AS high_comedogenic,
-                               AVG(comedogenic_rating) AS avg_comedogenic,
-                               MAX(updated_at) AS last_updated
-                        FROM ingredients
-                        """
-                    )).mappings().first()
-
-                    if stats:
-                        summary["total"] = stats.get("total", 0) or 0
-                        summary["allergens"] = stats.get("allergens", 0) or 0
-                        summary["unsafe_for_pregnancy"] = stats.get("unsafe", 0) or 0
-                        summary["high_comedogenic"] = stats.get("high_comedogenic", 0) or 0
-                        avg_rating = stats.get("avg_comedogenic")
-                        summary["average_comedogenic_rating"] = float(avg_rating) if avg_rating is not None else None
-                        summary["last_updated_at"] = self._to_iso_datetime(stats.get("last_updated"))
-
-                    return summary
-
-                last_updated_column = "updated_at" if self._column_exists(conn, "ingredients", "updated_at") else "created_at"
-
-                stats = conn.execute(text(
-                    f"""
-                    SELECT COUNT(*) AS total,
-                           MAX({last_updated_column}) AS last_updated
-                    FROM ingredients
-                    """
-                )).mappings().first()
-
-                if stats:
-                    summary["total"] = stats.get("total", 0) or 0
-                    summary["last_updated_at"] = self._to_iso_datetime(stats.get("last_updated"))
-
-                rows = conn.execute(text(
-                    """
-                    SELECT COALESCE(NULLIF(TRIM(risk_level), ''), 'unknown') AS risk_level,
-                           COUNT(*) AS total
-                    FROM ingredients
-                    GROUP BY COALESCE(NULLIF(TRIM(risk_level), ''), 'unknown')
-                    """
-                )).mappings().all()
-
-                distribution: Dict[str, int] = {
-                    "low": 0,
-                    "medium": 0,
-                    "high": 0,
-                    "unknown": 0,
-                }
-
-                for row in rows:
-                    normalized = self._normalize_risk_level(row.get("risk_level"))
-                    distribution[normalized] = distribution.get(normalized, 0) + (row.get("total", 0) or 0)
-
-                summary["low_risk"] = distribution.get("low", 0)
-                summary["medium_risk"] = distribution.get("medium", 0)
-                summary["high_risk"] = distribution.get("high", 0)
-                summary["unknown_risk"] = distribution.get("unknown", 0)
-                summary["high_comedogenic"] = summary["high_risk"]
-                summary["by_risk_level"] = distribution
-        except Exception as e:
-            logger.error(f"Error building ingredient summary: {e}")
-
-        return summary
-
-    def get_entity_summary(self) -> Dict[str, Any]:
-        """Returns total rows for core tables used by the admin panel."""
-        summary = {
-            "users": 0,
-            "products": 0,
-            "ingredients": 0,
-            "scans": 0,
-            "analyses": 0,
-            "analysis_details": 0,
-            "scan_ingredients": 0,
-            "user_histories": 0,
-            "total_records": 0,
-        }
-
-        if not self.engine:
-            return summary
-
-        tracked_tables = [
-            "users",
-            "products",
-            "ingredients",
-            "scans",
-            "analyses",
-            "analysis_details",
-            "scan_ingredients",
-            "user_histories",
-        ]
-
-        try:
-            with self.engine.connect() as conn:
-                for table_name in tracked_tables:
-                    if not self._table_exists(conn, table_name):
-                        continue
-
-                    count_value = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar()
-                    summary[table_name] = count_value or 0
-
-                summary["total_records"] = sum(summary[name] for name in tracked_tables)
-        except Exception as e:
-            logger.error(f"Error building entity summary: {e}")
-
-        return summary
-
-    def get_users(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Returns a list of users with basic activity metrics."""
-        if not self.engine:
-            return []
-
-        limit = max(1, min(limit, 500))
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "users"):
-                    return []
-
-                has_scans = self._table_exists(conn, "scans")
-                has_analyses = self._table_exists(conn, "analyses")
-
-                if has_scans and has_analyses:
-                    query = text(
-                        """
-                        SELECT
-                            u.id,
-                            u.name,
-                            u.email,
-                            u.role,
-                            u.provider,
-                            u.created_at,
-                            COUNT(DISTINCT a.id) AS analysis_count,
-                            MAX(a.created_at) AS last_analysis_at
-                        FROM users u
-                        LEFT JOIN scans s ON s.user_id = u.id
-                        LEFT JOIN analyses a ON a.scan_id = s.id
-                        GROUP BY
-                            u.id,
-                            u.name,
-                            u.email,
-                            u.role,
-                            u.provider,
-                            u.created_at
-                        ORDER BY u.created_at DESC
-                        LIMIT :limit
-                        """
-                    )
-
-                    rows = conn.execute(query, {"limit": limit}).mappings().all()
-
-                    return [
-                        {
-                            "id": row.get("id"),
-                            "name": row.get("name"),
-                            "email": row.get("email"),
-                            "role": row.get("role"),
-                            "provider": row.get("provider"),
-                            "analysis_count": row.get("analysis_count") or 0,
-                            "last_analysis_at": self._to_iso_datetime(row.get("last_analysis_at")),
-                            "created_at": self._to_iso_datetime(row.get("created_at")),
-                        }
-                        for row in rows
-                    ]
-
-                query = text(
-                    """
-                    SELECT id, name, email, role, provider, created_at
-                    FROM users
-                    ORDER BY created_at DESC
-                    LIMIT :limit
-                    """
-                )
-                rows = conn.execute(query, {"limit": limit}).mappings().all()
-
-                return [
-                    {
-                        "id": row.get("id"),
-                        "name": row.get("name"),
-                        "email": row.get("email"),
-                        "role": row.get("role"),
-                        "provider": row.get("provider"),
-                        "analysis_count": 0,
-                        "last_analysis_at": None,
-                        "created_at": self._to_iso_datetime(row.get("created_at")),
-                    }
-                    for row in rows
-                ]
-        except Exception as e:
-            logger.error(f"Error fetching user list: {e}")
-            return []
-
-    def _available_user_columns(self, conn) -> set[str]:
-        rows = conn.execute(text("SHOW COLUMNS FROM users")).mappings().all()
-        return {str(row.get("Field")) for row in rows if row.get("Field")}
-
-    def _normalize_admin_user(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        user = dict(row)
-        user.pop("password", None)
-        for key in ("role", "provider", "firebase_uid", "profile_picture", "fcm_token", "device_token"):
-            user.setdefault(key, None)
-        user["created_at"] = self._to_iso_datetime(user.get("created_at"))
-        user.setdefault("analysis_count", 0)
-        user.setdefault("last_analysis_at", None)
-        return user
-
-    def get_admin_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "users"):
-                    return None
-
-                columns = self._available_user_columns(conn)
-                allowed = [
-                    "id",
-                    "name",
-                    "email",
-                    "role",
-                    "provider",
-                    "firebase_uid",
-                    "profile_picture",
-                    "fcm_token",
-                    "device_token",
-                    "created_at",
-                ]
-                select_columns = [column for column in allowed if column in columns]
-                if not {"id", "email"}.issubset(select_columns):
-                    return None
-
-                row = conn.execute(text(
-                    f"SELECT {', '.join(select_columns)} FROM users WHERE id = :id LIMIT 1"
-                ), {"id": user_id}).mappings().first()
-
-                return self._normalize_admin_user(row) if row else None
-        except Exception as e:
-            logger.error(f"Error fetching admin user by id: {e}")
-            return None
-
-    def get_admin_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "users"):
-                    return None
-                row = conn.execute(text(
-                    "SELECT id, name, email, role, provider, created_at FROM users WHERE email = :email LIMIT 1"
-                ), {"email": email}).mappings().first()
-                return self._normalize_admin_user(row) if row else None
-        except Exception as e:
-            logger.error(f"Error fetching admin user by email: {e}")
-            return None
-
-    def create_admin_user(
-        self,
-        name: Optional[str],
-        email: str,
-        password_hash: str,
-        role: Optional[str] = "user",
-        provider: Optional[str] = "manual",
-        firebase_uid: Optional[str] = None,
-    ) -> Optional[int]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.begin() as conn:
-                if not self._table_exists(conn, "users"):
-                    return None
-
-                columns = self._available_user_columns(conn)
-                payload = {
-                    "name": name,
-                    "email": email,
-                    "password": password_hash,
-                    "role": role or "user",
-                    "provider": provider or "manual",
-                    "firebase_uid": firebase_uid,
-                }
-                insert_payload = {key: value for key, value in payload.items() if key in columns}
-                if "email" not in insert_payload or "password" not in insert_payload:
-                    return None
-
-                column_sql = ", ".join(insert_payload.keys())
-                value_sql = ", ".join(f":{key}" for key in insert_payload.keys())
-                insert = conn.execute(text(
-                    f"INSERT INTO users ({column_sql}) VALUES ({value_sql})"
-                ), insert_payload)
-                return insert.lastrowid
-        except Exception as e:
-            logger.error(f"Error creating admin user: {e}")
-            return None
-
-    def update_admin_user(
-        self,
-        user_id: int,
-        name: Optional[str] = None,
-        email: Optional[str] = None,
-        password_hash: Optional[str] = None,
-        role: Optional[str] = None,
-        provider: Optional[str] = None,
-        firebase_uid: Optional[str] = None,
-        profile_picture: Optional[str] = None,
-        fcm_token: Optional[str] = None,
-        device_token: Optional[str] = None,
-    ) -> bool:
-        if not self.engine:
-            return False
-        try:
-            with self.engine.begin() as conn:
-                if not self._table_exists(conn, "users"):
-                    return False
-
-                columns = self._available_user_columns(conn)
-                payload = {
-                    "name": name,
-                    "email": email,
-                    "password": password_hash,
-                    "role": role,
-                    "provider": provider,
-                    "firebase_uid": firebase_uid,
-                    "profile_picture": profile_picture,
-                    "fcm_token": fcm_token,
-                    "device_token": device_token,
-                }
-                updates = []
-                params: Dict[str, Any] = {"id": user_id}
-                for key, value in payload.items():
-                    if value is None or key not in columns:
-                        continue
-                    updates.append(f"{key} = :{key}")
-                    params[key] = value
-
-                if not updates:
-                    return True
-
-                conn.execute(text(
-                    "UPDATE users SET " + ", ".join(updates) + " WHERE id = :id"
-                ), params)
-                return True
-        except Exception as e:
-            logger.error(f"Error updating admin user: {e}")
-            return False
-
-    def delete_admin_user(self, user_id: int) -> bool:
-        if not self.engine:
-            return False
-        try:
-            with self.engine.begin() as conn:
-                if not self._table_exists(conn, "users"):
-                    return False
-                conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
-                return True
-        except Exception as e:
-            logger.error(f"Error deleting admin user: {e}")
-            return False
-
-    def get_user_notification_tokens(self, user_id: int) -> List[str]:
-        if not self.engine:
-            return []
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "users"):
-                    return []
-
-                tokens: List[str] = []
-                user_columns = self._available_user_columns(conn)
-                token_columns = [column for column in ("fcm_token", "device_token") if column in user_columns]
-                if token_columns:
-                    row = conn.execute(text(
-                        f"SELECT {', '.join(token_columns)} FROM users WHERE id = :id LIMIT 1"
-                    ), {"id": user_id}).mappings().first()
-                    if row:
-                        for value in row.values():
-                            if value:
-                                tokens.extend(self._normalize_token_values(value))
-
-                for table_name in ("user_devices", "device_tokens", "user_device_tokens"):
-                    if not self._table_exists(conn, table_name):
-                        continue
-
-                    columns = {
-                        str(row.get("Field"))
-                        for row in conn.execute(text(f"SHOW COLUMNS FROM {table_name}")).mappings().all()
-                        if row.get("Field")
-                    }
-                    user_column = "user_id" if "user_id" in columns else None
-                    token_column = next(
-                        (column for column in ("fcm_token", "device_token", "token") if column in columns),
-                        None,
-                    )
-                    if not user_column or not token_column:
-                        continue
-
-                    rows = conn.execute(text(
-                        f"SELECT {token_column} AS token FROM {table_name} WHERE {user_column} = :id"
-                    ), {"id": user_id}).mappings().all()
-                    for row in rows:
-                        tokens.extend(self._normalize_token_values(row.get("token")))
-
-                return list(dict.fromkeys(token for token in tokens if token))
-        except Exception as e:
-            logger.error(f"Error fetching user notification tokens: {e}")
-            return []
-
-    def _normalize_token_values(self, value: Any) -> List[str]:
-        if not value:
-            return []
-        if isinstance(value, list):
-            return [str(item).strip() for item in value if str(item).strip()]
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return []
-            try:
-                parsed = json.loads(stripped)
-                if isinstance(parsed, list):
-                    return [str(item).strip() for item in parsed if str(item).strip()]
-            except Exception:
-                pass
-            return [item.strip() for item in stripped.split(",") if item.strip()]
-        return [str(value).strip()]
-
     def get_analyses(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Returns a list of analyses with related user and product context."""
         if not self.engine:
             return []
-
-        limit = max(1, min(limit, 500))
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "analyses"):
-                    return []
-
-                query = text(
-                    """
-                    SELECT
-                        a.id,
-                        a.scan_id,
-                        a.summary,
-                        a.recommendation,
-                        a.status,
-                        a.created_at,
-                        s.extracted_text,
-                        u.id AS user_id,
-                        u.name AS user_name,
-                        u.email AS user_email,
-                        p.id AS product_id,
-                        p.name AS product_name,
-                        p.brand AS product_brand,
-                        p.category AS product_category,
-                        COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
-                        GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients,
-                        COUNT(DISTINCT ad.id) AS detail_count
-                    FROM analyses a
-                    LEFT JOIN scans s ON s.id = a.scan_id
-                    LEFT JOIN users u ON u.id = s.user_id
-                    LEFT JOIN products p ON p.id = s.product_id
-                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
-                    LEFT JOIN analysis_details ad ON ad.analysis_id = a.id
-                    GROUP BY
-                        a.id,
-                        a.scan_id,
-                        a.summary,
-                        a.recommendation,
-                        a.status,
-                        a.created_at,
-                        s.extracted_text,
-                        u.id,
-                        u.name,
-                        u.email,
-                        p.id,
-                        p.name,
-                        p.brand,
-                        p.category
-                    ORDER BY a.created_at DESC
-                    LIMIT :limit
-                    """
-                )
-
-                records: List[Dict[str, Any]] = []
-                for row in conn.execute(query, {"limit": limit}).mappings():
-                    raw_matched = row.get("matched_ingredients") or ""
-                    matched_ingredients = [
-                        item.strip() for item in str(raw_matched).split(",") if item and item.strip()
-                    ]
-
-                    records.append({
-                        "id": row.get("id"),
-                        "scan_id": row.get("scan_id"),
-                        "raw_text": row.get("extracted_text"),
-                        "summary": row.get("summary"),
-                        "recommendation": row.get("recommendation"),
-                        "status": row.get("status"),
-                        "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
-                        "matched_ingredients": matched_ingredients,
-                        "detail_count": row.get("detail_count") or 0,
-                        "user": {
-                            "id": row.get("user_id"),
-                            "name": row.get("user_name"),
-                            "email": row.get("user_email"),
-                        } if row.get("user_id") else None,
-                        "product": {
-                            "id": row.get("product_id"),
-                            "name": row.get("product_name"),
-                            "brand": row.get("product_brand"),
-                            "category": row.get("product_category"),
-                        } if row.get("product_id") else None,
-                        "created_at": self._to_iso_datetime(row.get("created_at")),
-                    })
-
-                return records
-        except Exception as e:
-            logger.error(f"Error fetching analyses list: {e}")
-            return []
-
-    def get_analysis_details(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Returns detail rows per analysis and ingredient."""
-        if not self.engine:
-            return []
-
-        limit = max(1, min(limit, 500))
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "analysis_details"):
-                    return []
-
-                query = text(
-                    """
-                    SELECT
-                        ad.id,
-                        ad.analysis_id,
-                        ad.ingredient_id,
-                        ad.`function` AS analysis_function,
-                        ad.benefit,
-                        ad.risk,
-                        a.status AS analysis_status,
-                        a.created_at AS analysis_created_at,
-                        i.name AS ingredient_name,
-                        i.risk_level AS ingredient_risk_level
-                    FROM analysis_details ad
-                    LEFT JOIN analyses a ON a.id = ad.analysis_id
-                    LEFT JOIN ingredients i ON i.id = ad.ingredient_id
-                    ORDER BY ad.id DESC
-                    LIMIT :limit
-                    """
-                )
-
-                rows = conn.execute(query, {"limit": limit}).mappings().all()
-
-                return [
-                    {
-                        "id": row.get("id"),
-                        "analysis_id": row.get("analysis_id"),
-                        "ingredient_id": row.get("ingredient_id"),
-                        "ingredient_name": row.get("ingredient_name"),
-                        "ingredient_risk_level": row.get("ingredient_risk_level"),
-                        "function": row.get("analysis_function"),
-                        "benefit": row.get("benefit"),
-                        "risk": row.get("risk"),
-                        "analysis_status": row.get("analysis_status"),
-                        "analysis_created_at": self._to_iso_datetime(row.get("analysis_created_at")),
-                    }
-                    for row in rows
-                ]
-        except Exception as e:
-            logger.error(f"Error fetching analysis details list: {e}")
-            return []
-
-    def get_products(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Returns products with usage counts."""
-        if not self.engine:
-            return []
-
-        limit = max(1, min(limit, 500))
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "products"):
-                    return []
-
-                query = text(
-                    """
-                    SELECT
-                        p.id,
-                        p.name,
-                        p.brand,
-                        p.category,
-                        p.barcode,
-                        p.image_url,
-                        p.created_at,
-                        COUNT(DISTINCT s.id) AS scan_count,
-                        COUNT(DISTINCT a.id) AS analysis_count
-                    FROM products p
-                    LEFT JOIN scans s ON s.product_id = p.id
-                    LEFT JOIN analyses a ON a.scan_id = s.id
-                    GROUP BY
-                        p.id,
-                        p.name,
-                        p.brand,
-                        p.category,
-                        p.barcode,
-                        p.image_url,
-                        p.created_at
-                    ORDER BY p.created_at DESC
-                    LIMIT :limit
-                    """
-                )
-
-                rows = conn.execute(query, {"limit": limit}).mappings().all()
-
-                return [
-                    {
-                        "id": row.get("id"),
-                        "name": row.get("name"),
-                        "brand": row.get("brand"),
-                        "category": row.get("category"),
-                        "barcode": row.get("barcode"),
-                        "image_url": row.get("image_url"),
-                        "scan_count": row.get("scan_count") or 0,
-                        "analysis_count": row.get("analysis_count") or 0,
-                        "created_at": self._to_iso_datetime(row.get("created_at")),
-                    }
-                    for row in rows
-                ]
-        except Exception as e:
-            logger.error(f"Error fetching products list: {e}")
-            return []
-
-    # --- Product CRUD helpers for admin API ---
-    def get_product_by_id(self, product_id: int) -> Optional[Dict[str, Any]]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "products"):
-                    return None
-                row = conn.execute(text(
-                    "SELECT id, name, brand, category, barcode, image_url, created_at FROM products WHERE id = :id LIMIT 1"
-                ), {"id": product_id}).mappings().first()
-                if not row:
-                    return None
-                return {
-                    "id": row.get("id"),
-                    "name": row.get("name"),
-                    "brand": row.get("brand"),
-                    "category": row.get("category"),
-                    "barcode": row.get("barcode"),
-                    "image_url": row.get("image_url"),
-                    "created_at": self._to_iso_datetime(row.get("created_at")),
-                }
-        except Exception as e:
-            logger.error(f"Error fetching product by id: {e}")
-            return None
-
-    def create_product(self, name: str, brand: Optional[str], category: Optional[str], barcode: Optional[str], image_url: Optional[str] = None) -> Optional[int]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.begin() as conn:
-                insert = conn.execute(text(
-                    "INSERT INTO products (name, brand, category, barcode, image_url, created_at) VALUES (:name, :brand, :category, :barcode, :image_url, NOW())"
-                ), {
-                    "name": name,
-                    "brand": brand,
-                    "category": category,
-                    "barcode": barcode,
-                    "image_url": image_url,
-                })
-                return insert.lastrowid
-        except Exception as e:
-            logger.error(f"Error creating product: {e}")
-            return None
-
-    def update_product(self, product_id: int, name: Optional[str], brand: Optional[str], category: Optional[str], barcode: Optional[str], image_url: Optional[str] = None) -> bool:
-        if not self.engine:
-            return False
-        try:
-            with self.engine.begin() as conn:
-                # Build update dynamically
-                updates = []
-                params = {"id": product_id}
-                if name is not None:
-                    updates.append("name = :name")
-                    params["name"] = name
-                if brand is not None:
-                    updates.append("brand = :brand")
-                    params["brand"] = brand
-                if category is not None:
-                    updates.append("category = :category")
-                    params["category"] = category
-                if barcode is not None:
-                    updates.append("barcode = :barcode")
-                    params["barcode"] = barcode
-                if image_url is not None:
-                    updates.append("image_url = :image_url")
-                    params["image_url"] = image_url
-
-                if not updates:
-                    return True
-
-                sql = "UPDATE products SET " + ", ".join(updates) + " WHERE id = :id"
-                conn.execute(text(sql), params)
-                return True
-        except Exception as e:
-            logger.error(f"Error updating product: {e}")
-            return False
-
-    def delete_product(self, product_id: int) -> bool:
-        if not self.engine:
-            return False
-        try:
-            with self.engine.begin() as conn:
-                conn.execute(text("DELETE FROM products WHERE id = :id"), {"id": product_id})
-                return True
-        except Exception as e:
-            logger.error(f"Error deleting product: {e}")
-            return False
-
-    def get_ingredients(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Returns ingredient list directly from the ingredients table."""
-        if not self.engine:
-            return []
-
-        limit = max(1, min(limit, 5000))
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "ingredients"):
-                    return []
-
-                query = text(
-                    """
-                    SELECT
-                        id,
-                        name,
-                        description
-                    FROM ingredients
-                    ORDER BY id DESC
-                    LIMIT :limit
-                    """
-                )
-
-                rows = conn.execute(query, {"limit": limit}).mappings().all()
-
-                return [
-                    {
-                        "id": row.get("id"),
-                        "name": row.get("name"),
-                        "description": row.get("description"),
-                        "function": None,
-                        "risk_level": None,
-                        "created_at": None,
-                    }
-                    for row in rows
-                ]
-        except Exception as e:
-            logger.error(f"Error fetching ingredients list: {e}")
-            return []
-
-    # --- Ingredient CRUD helpers for admin API ---
-    def get_ingredient_by_id(self, ingredient_id: int) -> Optional[Dict[str, Any]]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "ingredients"):
-                    return None
-                row = conn.execute(text(
-                    "SELECT id, name, description, `function`, risk_level, created_at FROM ingredients WHERE id = :id LIMIT 1"
-                ), {"id": ingredient_id}).mappings().first()
-                if not row:
-                    return None
-                return {
-                    "id": row.get("id"),
-                    "name": row.get("name"),
-                    "description": row.get("description"),
-                    "function": row.get("function"),
-                    "risk_level": row.get("risk_level"),
-                    "created_at": self._to_iso_datetime(row.get("created_at")),
-                }
-        except Exception as e:
-            logger.error(f"Error fetching ingredient by id: {e}")
-            return None
-
-    def create_ingredient(self, name: str, description: Optional[str], function: Optional[str], risk_level: Optional[str]) -> Optional[int]:
-        if not self.engine:
-            return None
-        try:
-            with self.engine.begin() as conn:
-                insert = conn.execute(text(
-                    "INSERT INTO ingredients (name, description, `function`, risk_level, created_at) VALUES (:name, :description, :function, :risk_level, NOW())"
-                ), {
-                    "name": name,
-                    "description": description,
-                    "function": function,
-                    "risk_level": risk_level,
-                })
-                return insert.lastrowid
-        except Exception as e:
-            logger.error(f"Error creating ingredient: {e}")
-            return None
-
-    def update_ingredient(self, ingredient_id: int, name: Optional[str], description: Optional[str], function: Optional[str], risk_level: Optional[str]) -> bool:
-        if not self.engine:
-            return False
-        try:
-            with self.engine.begin() as conn:
-                updates = []
-                params = {"id": ingredient_id}
-                if name is not None:
-                    updates.append("name = :name")
-                    params["name"] = name
-                if description is not None:
-                    updates.append("description = :description")
-                    params["description"] = description
-                if function is not None:
-                    updates.append("`function` = :function")
-                    params["function"] = function
-                if risk_level is not None:
-                    updates.append("risk_level = :risk_level")
-                    params["risk_level"] = risk_level
-
-                if not updates:
-                    return True
-
-                sql = "UPDATE ingredients SET " + ", ".join(updates) + " WHERE id = :id"
-                conn.execute(text(sql), params)
-                return True
-        except Exception as e:
-            logger.error(f"Error updating ingredient: {e}")
-            return False
-
-    def delete_ingredient(self, ingredient_id: int) -> bool:
-        if not self.engine:
-            return False
-        try:
-            with self.engine.begin() as conn:
-                conn.execute(text("DELETE FROM ingredients WHERE id = :id"), {"id": ingredient_id})
-                return True
-        except Exception as e:
-            logger.error(f"Error deleting ingredient: {e}")
-            return False
-
-    def get_user_histories(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Returns user history rows with analysis info."""
-        if not self.engine:
-            return []
-
-        limit = max(1, min(limit, 500))
-
-        try:
-            with self.engine.connect() as conn:
-                if not self._table_exists(conn, "user_histories"):
-                    return []
-
-                query = text(
-                    """
-                    SELECT
-                        uh.id,
-                        uh.user_id,
-                        uh.analysis_id,
-                        uh.viewed_at,
-                        u.name AS user_name,
-                        u.email AS user_email,
-                        a.status AS analysis_status,
-                        a.summary AS analysis_summary,
-                        a.recommendation AS analysis_recommendation,
-                        a.created_at AS analysis_created_at,
-                        s.extracted_text,
-                        p.name AS product_name,
-                        p.brand AS product_brand,
-                        p.category AS product_category,
-                        COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
-                        GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients
-                    FROM user_histories uh
-                    LEFT JOIN users u ON u.id = uh.user_id
-                    LEFT JOIN analyses a ON a.id = uh.analysis_id
-                    LEFT JOIN scans s ON s.id = a.scan_id
-                    LEFT JOIN products p ON p.id = s.product_id
-                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
-                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
-                    GROUP BY
-                        uh.id,
-                        uh.user_id,
-                        uh.analysis_id,
-                        uh.viewed_at,
-                        u.name,
-                        u.email,
-                        a.status,
-                        a.summary,
-                        a.recommendation,
-                        a.created_at,
-                        s.extracted_text,
-                        p.name,
-                        p.brand,
-                        p.category
-                    ORDER BY uh.viewed_at DESC
-                    LIMIT :limit
-                    """
                 )
 
                 rows = conn.execute(query, {"limit": limit}).mappings().all()

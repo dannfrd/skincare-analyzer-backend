@@ -344,6 +344,7 @@ class MetricsSummaryResponse(BaseModel):
 class RecentAnalysisResponse(BaseModel):
     id: int
     scan_id: Optional[int] = None
+    image_url: Optional[str] = None
     raw_text: Optional[str] = None
     summary: Optional[str] = None
     recommendation: Optional[str] = None
@@ -720,26 +721,32 @@ async def analyze_image(
 ):
     """Receives an image for OCR, then processes the text."""
     try:
-        # Save temporary file safely
+        import uuid
+        # Save file safely to a permanent scan directory
         safe_name = os.path.basename(file.filename) if file.filename else "upload.jpg"
-        temp_path = os.path.join("uploads", f"temp_{safe_name}")
-        with open(temp_path, "wb") as buffer:
+        ext = os.path.splitext(safe_name)[1]
+        if not ext: ext = ".jpg"
+        unique_filename = f"scan_{int(time.time())}_{uuid.uuid4().hex[:8]}{ext}"
+        scan_dir = os.path.join("uploads", "scans")
+        os.makedirs(scan_dir, exist_ok=True)
+        final_path = os.path.join(scan_dir, unique_filename)
+        
+        with open(final_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
         start_time = time.time()
-        extracted_text = extract_text_from_image_path(temp_path)
+        extracted_text = extract_text_from_image_path(final_path)
         exec_time_ms = int((time.time() - start_time) * 1000)
         
         print("\n" + "="*60)
-        print(f"📷 [SCAN APK RESULT] File Uploaded: {safe_name} | ⏱️ Waktu OCR: {exec_time_ms} ms")
+        print(f"📷 [SCAN APK RESULT] File Uploaded: {unique_filename} | ⏱️ Waktu OCR: {exec_time_ms} ms")
         print("-" * 60)
         print(f"📑 Teks Hasil OCR:\n{extracted_text.strip() if extracted_text.strip() else '(Kosong / Tidak ada teks)'}")
         print("="*60 + "\n")
         
-        # Cleanup temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        # WE NO LONGER DELETE THE IMAGE HERE. It's saved for history.
+        image_url = f"/uploads/scans/{unique_filename}"
             
         if not extracted_text.strip():
             raise HTTPException(status_code=400, detail="Could not extract text from the image.")
@@ -753,6 +760,7 @@ async def analyze_image(
             product_name=product_name,
             product_brand=product_brand,
             product_category=product_category,
+            image_url=image_url,
         )
         
     except Exception as e:
@@ -764,6 +772,7 @@ def process_text_analysis(
     product_name: Optional[str] = None,
     product_brand: Optional[str] = None,
     product_category: Optional[str] = None,
+    image_url: Optional[str] = None,
 ):
     """Helper function to run the NLP/AI pipeline on text."""
     # 1. Keep only ingredient-like text for downstream AI and matching
@@ -896,6 +905,7 @@ def process_text_analysis(
         product_name=product_name,
         product_brand=product_brand,
         product_category=product_category,
+        image_url=image_url,
     )
     if saved_id:
         result_data["analysis_id"] = saved_id
