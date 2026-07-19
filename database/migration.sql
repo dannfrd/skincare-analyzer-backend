@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NULL DEFAULT 'user',
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     provider ENUM('manual','google') NULL DEFAULT 'manual',
-    firebase_uid VARCHAR(255) NULL
+    firebase_uid VARCHAR(255) NULL,
+    reset_otp VARCHAR(10) NULL,
+    reset_otp_expires_at TIMESTAMP NULL
 );
 
 -- =========================
@@ -216,6 +218,10 @@ ALTER TABLE users
     ADD COLUMN fcm_token TEXT NULL AFTER profile_picture;
 ALTER TABLE users
     ADD COLUMN device_token TEXT NULL AFTER fcm_token;
+ALTER TABLE users
+    ADD COLUMN reset_otp VARCHAR(10) NULL AFTER device_token;
+ALTER TABLE users
+    ADD COLUMN reset_otp_expires_at TIMESTAMP NULL AFTER reset_otp;
 
 DELETE duplicate_detail
 FROM analysis_details duplicate_detail

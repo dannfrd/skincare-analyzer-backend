@@ -2460,6 +2460,47 @@ class DatabaseConnection:
             logger.error(f"Error fetching user histories list: {e}")
             return []
 
+    def set_reset_otp(self, email: str, otp: str, expires_at: datetime) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    text("UPDATE users SET reset_otp = :otp, reset_otp_expires_at = :expires_at WHERE email = :email"),
+                    {"otp": otp, "expires_at": expires_at, "email": email}
+                )
+                return result.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error setting reset OTP: {e}")
+            return False
+
+    def verify_and_clear_reset_otp(self, email: str, otp: str) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                row = conn.execute(
+                    text("SELECT reset_otp, reset_otp_expires_at FROM users WHERE email = :email LIMIT 1"),
+                    {"email": email}
+                ).mappings().first()
+
+                if not row or row.get("reset_otp") != otp:
+                    return False
+                
+                expires_at = row.get("reset_otp_expires_at")
+                if not expires_at or expires_at < datetime.now():
+                    return False
+
+                # Valid, so clear it
+                conn.execute(
+                    text("UPDATE users SET reset_otp = NULL, reset_otp_expires_at = NULL WHERE email = :email"),
+                    {"email": email}
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Error verifying reset OTP: {e}")
+            return False
+
 # Helper untuk mendapatkan instance dari koneksi database
 def get_db_connection() -> DatabaseConnection:
     return DatabaseConnection()
