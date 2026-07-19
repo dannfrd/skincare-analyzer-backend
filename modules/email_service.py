@@ -31,10 +31,10 @@ def send_otp_email(to_email: str, otp: str) -> bool:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = "Kode OTP Reset Password Dermify"
-        msg["From"] = f"Dermify Support <{SMTP_USER}>"
+        msg["From"] = f"Dermify Support <noreply@dermify.my.id>"
         msg["To"] = to_email
 
-        text_content = f"Halo,\n\nKode OTP Anda untuk mereset password adalah: {otp}\n\nKode ini berlaku selama 10 menit.\n\nTim Dermify"
+        text_content = f"Halo,\n\nKami menerima permintaan untuk mereset password akun Anda di aplikasi Dermify.\n\nKode OTP Anda adalah: {otp}\n\nKode ini berlaku selama 10 menit.\n\nJika Anda tidak pernah meminta reset password, mohon abaikan pesan ini.\n\nPesan ini dikirimkan otomatis oleh sistem Dermify. Harap jangan membalas email ini.\n\nTim Dermify"
         html_content = f"""\
         <!DOCTYPE html>
         <html>
@@ -50,8 +50,9 @@ def send_otp_email(to_email: str, otp: str) -> bool:
                     <h1 style="color: #4CB35B; font-size: 40px; margin: 0; letter-spacing: 8px;">{otp}</h1>
                 </div>
                 <p style="color: #555555; line-height: 1.5;">Kode OTP ini hanya berlaku selama <strong>10 menit</strong>.</p>
-                <p style="color: #888888; font-size: 12px; margin-top: 30px; border-top: 1px solid #eeeeee; padding-top: 20px;">
+                <p style="color: #888888; font-size: 12px; margin-top: 30px; border-top: 1px solid #eeeeee; padding-top: 20px; line-height: 1.6;">
                     Jika Anda tidak pernah meminta reset password, mohon abaikan email ini. Pastikan akun Anda tetap aman.<br><br>
+                    <em>Pesan ini dikirimkan otomatis oleh sistem Dermify. Harap jangan membalas (reply) ke alamat email ini.</em><br><br>
                     &copy; 2026 Dermify App. All rights reserved.
                 </p>
             </div>
