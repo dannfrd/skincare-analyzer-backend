@@ -1,18 +1,9 @@
 """
-ocr.py - OCR Module (Legacy / Minimal)
+ocr.py - OCR Module (PaddleOCR)
 
-Catatan: Sejak integrasi Google MLKit di Flutter, proses OCR dilakukan
-sepenuhnya on-device di HP pengguna. Backend tidak lagi memproses gambar.
-
-Modul ini dipertahankan untuk kompatibilitas mundur endpoint /analyze-image
-yang mungkin masih diuji secara manual via Postman/curl.
+Menggunakan PaddleOCR untuk ekstraksi teks.
+Di-load sekali saat pertama dipanggil (lazy loading) dan menggunakan konfigurasi ringan (CPU only).
 """
-
-pytesseract = None
-try:
-    import pytesseract
-except ImportError:
-    pass
 
 import numpy as np
 import logging
@@ -20,47 +11,61 @@ import os
 
 logger = logging.getLogger(__name__)
 
+paddle_ocr_instance = None
+
+def get_paddle_ocr():
+    global paddle_ocr_instance
+    if paddle_ocr_instance is None:
+        try:
+            from paddleocr import PaddleOCR
+            # Konfigurasi ringan sesuai requirement VPS 2GB RAM: CPU only, english model
+            logger.info("Initializing PaddleOCR...")
+            paddle_ocr_instance = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False)
+            logger.info("PaddleOCR initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize PaddleOCR: {e}")
+            raise RuntimeError(f"PaddleOCR Initialization Error: {e}")
+    return paddle_ocr_instance
+
 
 class OCRProcessor:
     """
-    Handles the extraction of text from preprocessed images using Tesseract OCR.
-    Digunakan sebagai fallback minimal jika endpoint /analyze-image masih dipanggil.
+    Handles the extraction of text using PaddleOCR.
     """
-
-    def __init__(self, psm_mode: int = 6):
-        if pytesseract is None:
-            raise RuntimeError(
-                "Library 'pytesseract' tidak terpasang. "
-                "Install dengan 'pip install pytesseract' jika diperlukan."
-            )
-        self.config = f"--oem 3 --psm {psm_mode}"
-        tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
-        if tesseract_cmd:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+    def __init__(self):
+        self.ocr_model = get_paddle_ocr()
 
     def extract_text(self, image: np.ndarray) -> str:
-        logger.info(f"Tesseract OCR extraction (PSM: {self.config})")
+        logger.info(f"PaddleOCR extraction started")
         try:
-            raw_text = pytesseract.image_to_string(image, config=self.config)
-            if not raw_text.strip():
+            result = self.ocr_model.ocr(image, cls=True)
+            if not result or not result[0]:
                 logger.warning("OCR selesai tetapi tidak ada teks yang ditemukan.")
-            return raw_text
+                return ""
+            
+            extracted_lines = []
+            for line in result[0]:
+                text = line[1][0]
+                extracted_lines.append(text)
+                
+            return "\n".join(extracted_lines)
         except Exception as e:
             logger.error(f"OCR processing failed: {str(e)}")
             raise RuntimeError(f"Failed to extract text using OCR: {str(e)}")
 
 
-def extract_text_from_image(image: np.ndarray, psm_mode: int = 6) -> str:
-    """Extract text dari numpy array menggunakan Tesseract (fallback minimal)."""
-    logger.info("extract_text_from_image dipanggil — gunakan Tesseract sebagai fallback.")
-    ocr = OCRProcessor(psm_mode=psm_mode)
+def extract_text_from_image(image: np.ndarray, **kwargs) -> str:
+    """Extract text dari numpy array menggunakan PaddleOCR."""
+    logger.info("extract_text_from_image dipanggil — menggunakan PaddleOCR.")
+    ocr = OCRProcessor()
     return ocr.extract_text(image)
 
 
-def extract_text_from_image_path(image_path: str, psm_mode: int = 6) -> str:
-    """Extract text dari file path menggunakan Tesseract (fallback minimal)."""
+def extract_text_from_image_path(image_path: str, **kwargs) -> str:
+    """Extract text dari file path menggunakan PaddleOCR."""
     logger.info(f"extract_text_from_image_path dipanggil untuk: {image_path}")
     from modules.preprocessing import preprocess_image
+    # Gambar di-resize sebelum masuk ke OCR
     processed_image = preprocess_image(image_path)
-    ocr = OCRProcessor(psm_mode=psm_mode)
+    ocr = OCRProcessor()
     return ocr.extract_text(processed_image)
