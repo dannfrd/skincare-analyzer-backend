@@ -1,6 +1,9 @@
 import os
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+# Fix internal PaddlePaddle CPU bugs by disabling PIR and MKLDNN globally
+os.environ['FLAGS_enable_pir_api'] = '0'
+os.environ['FLAGS_use_mkldnn'] = '0'
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
