@@ -18,6 +18,10 @@ def get_paddle_ocr():
     global paddle_ocr_instance
     if paddle_ocr_instance is None:
         try:
+            # Fix internal PaddlePaddle CPU bugs by disabling PIR and MKLDNN
+            os.environ['FLAGS_enable_pir_api'] = '0'
+            os.environ['FLAGS_use_mkldnn'] = '0'
+            
             from paddleocr import PaddleOCR
             # Konfigurasi ringan sesuai requirement VPS 2GB RAM: CPU only, english model
             logger.info("Initializing PaddleOCR...")
