@@ -20,7 +20,7 @@ def get_paddle_ocr():
             from paddleocr import PaddleOCR
             # Konfigurasi ringan sesuai requirement VPS 2GB RAM: CPU only, english model
             logger.info("Initializing PaddleOCR...")
-            paddle_ocr_instance = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False)
+            paddle_ocr_instance = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
             logger.info("PaddleOCR initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize PaddleOCR: {e}")
