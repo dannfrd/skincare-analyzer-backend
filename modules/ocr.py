@@ -38,7 +38,7 @@ class OCRProcessor:
     def extract_text(self, image: np.ndarray) -> str:
         logger.info(f"PaddleOCR extraction started")
         try:
-            result = self.ocr_model.ocr(image, cls=True)
+            result = self.ocr_model.ocr(image)
             if not result or not result[0]:
                 logger.warning("OCR selesai tetapi tidak ada teks yang ditemukan.")
                 return ""
