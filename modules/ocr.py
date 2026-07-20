@@ -39,14 +39,19 @@ class OCRProcessor:
         logger.info(f"PaddleOCR extraction started")
         try:
             result = self.ocr_model.ocr(image)
-            if not result or not result[0]:
+            extracted_lines = []
+            def find_text_tuples(obj):
+                if isinstance(obj, tuple) and len(obj) == 2 and isinstance(obj[0], str):
+                    extracted_lines.append(obj[0])
+                elif isinstance(obj, list):
+                    for item in obj:
+                        find_text_tuples(item)
+            
+            find_text_tuples(result)
+            
+            if not extracted_lines:
                 logger.warning("OCR selesai tetapi tidak ada teks yang ditemukan.")
                 return ""
-            
-            extracted_lines = []
-            for line in result[0]:
-                text = line[1][0]
-                extracted_lines.append(text)
                 
             return "\n".join(extracted_lines)
         except Exception as e:
