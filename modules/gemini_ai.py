@@ -6,6 +6,17 @@ import json
 import re
 from typing import Any, Dict, List
 from dotenv import load_dotenv
+import socket
+
+# MONKEY PATCH: Force IPv4 for all socket connections to prevent hanging on VPS with broken IPv6 routes.
+# Many VPS providers (especially in certain regions) assign IPv6 addresses but have broken IPv6 routing to Google APIs.
+# This causes httpx to hang for 60+ seconds trying to connect to Google's IPv6 address.
+_orig_getaddrinfo = socket.getaddrinfo
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if family == 0:
+        family = socket.AF_INET
+    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+socket.getaddrinfo = _ipv4_only_getaddrinfo
 
 try:
     from google import genai as google_genai_sdk
