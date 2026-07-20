@@ -8,6 +8,7 @@ Di-load sekali saat pertama dipanggil (lazy loading) dan menggunakan konfigurasi
 import numpy as np
 import logging
 import os
+import cv2
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,11 @@ class OCRProcessor:
 
     def extract_text(self, image: np.ndarray) -> str:
         logger.info(f"PaddleOCR extraction started")
+        
+        # Ensure image has 3 channels (PaddleOCR expects HxWx3)
+        if len(image.shape) == 2:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            
         try:
             result = self.ocr_model.ocr(image)
             extracted_lines = []
