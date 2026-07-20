@@ -22,7 +22,11 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir paddlepaddle==2.6.1 \
     -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Install uv for blazing fast dependency resolution
+RUN pip install --no-cache-dir uv
+
+# Install dependencies using uv
+RUN uv pip install --system --no-cache-dir -r requirements.txt
 
 COPY . .
 
