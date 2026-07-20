@@ -18,6 +18,10 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu \
     torch
 
+# Pasang PaddlePaddle CPU langsung dari Baidu (menghindari timeout pip index global)
+RUN pip install --no-cache-dir paddlepaddle==2.6.1 \
+    -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .

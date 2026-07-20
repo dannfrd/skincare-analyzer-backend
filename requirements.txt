@@ -1,4 +1,3 @@
---extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
 annotated-types==0.7.0
 certifi==2026.2.25
 cffi==2.0.0
@@ -19,7 +18,6 @@ httplib2==0.31.2
 idna==3.11
 numpy==1.26.4
 opencv-python-headless==4.9.0.80
-paddlepaddle==2.6.1
 paddleocr>=2.7.3
 packaging==26.0
 pandas==2.2.3
