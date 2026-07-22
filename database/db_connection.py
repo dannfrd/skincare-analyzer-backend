@@ -677,7 +677,7 @@ class DatabaseConnection:
         return insert.lastrowid
 
     # --- Notifications CRUD helpers ---
-    def create_notification(self, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str = "draft", scheduled_at: Optional[str] = None, sent_by: Optional[int] = None) -> Optional[int]:
+    def create_notification(self, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str = "draft", scheduled_at: Optional[str] = None, sent_by: Optional[int] = None, repeat_daily: bool = False, repeat_time: Optional[str] = None) -> Optional[int]:
         if not self.engine:
             return None
         try:
@@ -723,7 +723,7 @@ class DatabaseConnection:
 
             with self.engine.begin() as conn:
                 insert = conn.execute(text(
-                    "INSERT INTO notifications (title, body, data, topic, tokens, status, scheduled_at, sent_by, created_at) VALUES (:title, :body, :data, :topic, :tokens, :status, :scheduled_at, :sent_by, NOW())"
+                    "INSERT INTO notifications (title, body, data, topic, tokens, status, scheduled_at, sent_by, repeat_daily, repeat_time, created_at) VALUES (:title, :body, :data, :topic, :tokens, :status, :scheduled_at, :sent_by, :repeat_daily, :repeat_time, NOW())"
                 ), {
                     "title": title,
                     "body": body,
@@ -733,6 +733,8 @@ class DatabaseConnection:
                     "status": status,
                     "scheduled_at": sched_val,
                     "sent_by": sent_by,
+                    "repeat_daily": 1 if repeat_daily else 0,
+                    "repeat_time": repeat_time,
                 })
                 try:
                     return insert.lastrowid
@@ -755,7 +757,7 @@ class DatabaseConnection:
                 if not self._table_exists(conn, "notifications"):
                     return []
                 query = text(
-                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, created_at FROM notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, repeat_daily, repeat_time, last_sent_at, created_at FROM notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
                 )
                 rows = conn.execute(query, {"limit": limit, "offset": offset}).mappings().all()
                 results: List[Dict[str, Any]] = []
@@ -790,6 +792,9 @@ class DatabaseConnection:
                         "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
                         "sent_at": self._to_iso_datetime(row.get("sent_at")),
                         "sent_by": row.get("sent_by"),
+                        "repeat_daily": bool(row.get("repeat_daily")),
+                        "repeat_time": row.get("repeat_time"),
+                        "last_sent_at": self._to_iso_datetime(row.get("last_sent_at")),
                         "created_at": self._to_iso_datetime(row.get("created_at")),
                     })
                 return results
@@ -805,7 +810,7 @@ class DatabaseConnection:
                 if not self._table_exists(conn, "notifications"):
                     return None
                 row = conn.execute(text(
-                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, created_at FROM notifications WHERE id = :id LIMIT 1"
+                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, repeat_daily, repeat_time, last_sent_at, created_at FROM notifications WHERE id = :id LIMIT 1"
                 ), {"id": notification_id}).mappings().first()
                 if not row:
                     return None
@@ -840,6 +845,9 @@ class DatabaseConnection:
                     "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
                     "sent_at": self._to_iso_datetime(row.get("sent_at")),
                     "sent_by": row.get("sent_by"),
+                    "repeat_daily": bool(row.get("repeat_daily")),
+                    "repeat_time": row.get("repeat_time"),
+                    "last_sent_at": self._to_iso_datetime(row.get("last_sent_at")),
                     "created_at": self._to_iso_datetime(row.get("created_at")),
                 }
         except Exception as e:
@@ -872,7 +880,7 @@ class DatabaseConnection:
             logger.error(f"Error marking notification failed: {e}")
             return False
 
-    def update_notification(self, notification_id: int, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str, scheduled_at: Optional[str] = None) -> bool:
+    def update_notification(self, notification_id: int, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str, scheduled_at: Optional[str] = None, repeat_daily: bool = False, repeat_time: Optional[str] = None) -> bool:
         if not self.engine:
             return False
         try:
@@ -920,7 +928,9 @@ class DatabaseConnection:
                         topic = :topic,
                         tokens = :tokens,
                         status = :status,
-                        scheduled_at = :scheduled_at
+                        scheduled_at = :scheduled_at,
+                        repeat_daily = :repeat_daily,
+                        repeat_time = :repeat_time
                     WHERE id = :id
                     """
                 ), {
@@ -931,7 +941,9 @@ class DatabaseConnection:
                     "topic": topic,
                     "tokens": tokens_val,
                     "status": status,
-                    "scheduled_at": sched_val
+                    "scheduled_at": sched_val,
+                    "repeat_daily": 1 if repeat_daily else 0,
+                    "repeat_time": repeat_time,
                 })
                 return True
         except Exception as e:
@@ -947,6 +959,63 @@ class DatabaseConnection:
                 return True
         except Exception as e:
             logger.error(f"Error deleting notification: {e}")
+            return False
+
+    def get_recurring_notifications(self) -> List[Dict[str, Any]]:
+        """Return all active recurring notifications for the daily scheduler."""
+        if not self.engine:
+            return []
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "notifications"):
+                    return []
+                rows = conn.execute(text(
+                    "SELECT id, title, body, data, topic, tokens, repeat_time, last_sent_at "
+                    "FROM notifications "
+                    "WHERE repeat_daily = 1 AND status NOT IN ('disabled', 'failed') "
+                    "ORDER BY id"
+                )).mappings().all()
+                results = []
+                for row in rows:
+                    data_val = row.get("data")
+                    if isinstance(data_val, str):
+                        try:
+                            data_val = json.loads(data_val)
+                        except Exception:
+                            pass
+                    tokens_val = row.get("tokens")
+                    if isinstance(tokens_val, str):
+                        try:
+                            tokens_val = json.loads(tokens_val)
+                        except Exception:
+                            pass
+                    results.append({
+                        "id": row.get("id"),
+                        "title": row.get("title"),
+                        "body": row.get("body"),
+                        "data": data_val,
+                        "topic": row.get("topic"),
+                        "tokens": tokens_val,
+                        "repeat_time": row.get("repeat_time"),
+                        "last_sent_at": row.get("last_sent_at"),
+                    })
+                return results
+        except Exception as e:
+            logger.error(f"Error fetching recurring notifications: {e}")
+            return []
+
+    def update_last_sent_at(self, notification_id: int) -> bool:
+        """Stamp last_sent_at = NOW() after a recurring send."""
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE notifications SET last_sent_at = NOW() WHERE id = :id"
+                ), {"id": notification_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error updating last_sent_at: {e}")
             return False
 
     @staticmethod

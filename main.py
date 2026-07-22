@@ -20,6 +20,7 @@ import time
 import json
 from jose import jwt, JWTError
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
 
@@ -71,6 +72,61 @@ async def startup_event():
 
     print("OCR engine: On-Device (Google MLKit via Flutter). Backend hanya memproses teks.")
     print("="*50 + "\n")
+
+    # ── Start daily recurring notification scheduler ──────────────────────────
+    def _check_recurring_notifications():
+        """Called every minute by APScheduler. Sends repeat_daily notifications at their repeat_time."""
+        try:
+            from database.db_connection import get_db_connection as _get_db
+            db = next(_get_db())
+            now_str = datetime.now().strftime("%H:%M")
+            today_str = datetime.now().strftime("%Y-%m-%d")
+
+            candidates = db.get_recurring_notifications()
+            for notif in candidates:
+                repeat_time = (notif.get("repeat_time") or "").strip()
+                if repeat_time != now_str:
+                    continue
+
+                # Skip if already sent today
+                last_sent = notif.get("last_sent_at")
+                if last_sent is not None:
+                    if isinstance(last_sent, str):
+                        last_sent_date = last_sent[:10]
+                    else:
+                        last_sent_date = last_sent.strftime("%Y-%m-%d")
+                    if last_sent_date == today_str:
+                        continue
+
+                nid = notif["id"]
+                title = notif.get("title") or ""
+                body = notif.get("body") or ""
+                data = notif.get("data")
+                topic = notif.get("topic")
+                tokens = notif.get("tokens")
+                fcm_data: dict = {}
+                if data and isinstance(data, dict):
+                    fcm_data = {str(k): str(v) for k, v in data.items() if v is not None}
+
+                try:
+                    send_notification(
+                        title=title,
+                        body=body,
+                        data=fcm_data,
+                        topic=topic,
+                        tokens=tokens,
+                    )
+                    db.update_last_sent_at(nid)
+                    print(f"[Scheduler] Recurring notification #{nid} sent at {now_str}")
+                except Exception as send_err:
+                    print(f"[Scheduler] Failed to send recurring notification #{nid}: {send_err}")
+        except Exception as outer_err:
+            print(f"[Scheduler] Error in recurring check: {outer_err}")
+
+    _recurring_scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
+    _recurring_scheduler.add_job(_check_recurring_notifications, "cron", minute="*")
+    _recurring_scheduler.start()
+    print("[Scheduler] Daily recurring notification scheduler started (checks every minute, WIB).")
 
 
 # Make sure uploads directory exists
@@ -1403,6 +1459,8 @@ class NotificationCreateRequest(BaseModel):
     tokens: Optional[object] = None
     status: Optional[str] = "draft"
     scheduled_at: Optional[str] = None
+    repeat_daily: Optional[bool] = False
+    repeat_time: Optional[str] = None  # format "HH:MM" (WIB)
 
 
 def _normalize_notification_tokens(tokens_field: Any) -> Optional[List[str]]:
@@ -1534,6 +1592,21 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
     # If send_now is true, default initial status to 'draft' before triggering FCM
     initial_status = "draft" if send_now else status
 
+    repeat_daily = bool(payload.get("repeat_daily"))
+    repeat_time: Optional[str] = None
+    if repeat_daily:
+        # Derive repeat_time from scheduled_at if not provided explicitly
+        raw_repeat_time = payload.get("repeat_time")
+        if raw_repeat_time and isinstance(raw_repeat_time, str) and len(raw_repeat_time) == 5:
+            repeat_time = raw_repeat_time
+        elif scheduled_at:
+            try:
+                s = str(scheduled_at).rstrip("Z")
+                dt = datetime.fromisoformat(s)
+                repeat_time = dt.strftime("%H:%M")
+            except Exception:
+                pass
+
     nid = db.create_notification(
         title=title,
         body=body,
@@ -1542,6 +1615,8 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
         tokens=tokens_field,
         status=initial_status,
         scheduled_at=scheduled_at,
+        repeat_daily=repeat_daily,
+        repeat_time=repeat_time,
     )
 
     if not nid:
@@ -1663,6 +1738,20 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
     if send_now:
         status = "draft"
 
+    repeat_daily = bool(payload.get("repeat_daily"))
+    repeat_time: Optional[str] = None
+    if repeat_daily:
+        raw_repeat_time = payload.get("repeat_time")
+        if raw_repeat_time and isinstance(raw_repeat_time, str) and len(raw_repeat_time) == 5:
+            repeat_time = raw_repeat_time
+        elif scheduled_at:
+            try:
+                s = str(scheduled_at).rstrip("Z")
+                dt = datetime.fromisoformat(s)
+                repeat_time = dt.strftime("%H:%M")
+            except Exception:
+                pass
+
     ok = db.update_notification(
         notification_id=notification_id,
         title=title,
@@ -1672,6 +1761,8 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
         tokens=tokens_field,
         status=status,
         scheduled_at=scheduled_at,
+        repeat_daily=repeat_daily,
+        repeat_time=repeat_time,
     )
 
     if not ok:
