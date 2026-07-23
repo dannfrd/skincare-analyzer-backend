@@ -1877,7 +1877,8 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
                     a.created_at,
                     p.name AS product_name,
                     p.brand AS product_brand,
-                    p.category AS product_category
+                    p.category AS product_category,
+                    s.image_url
                 FROM user_histories uh
                 JOIN analyses a ON uh.analysis_id = a.id
                 JOIN scans s ON a.scan_id = s.id

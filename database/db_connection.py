@@ -138,11 +138,12 @@ class DatabaseConnection:
                 scan_insert = conn.execute(text(
                     """
                     INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
-                    VALUES (:user_id, :product_id, NULL, :extracted_text, NOW())
+                    VALUES (:user_id, :product_id, :image_url, :extracted_text, NOW())
                     """
                 ), {
                     "user_id": resolved_user_id,
                     "product_id": product_id,
+                    "image_url": image_url,
                     "extracted_text": raw_text,
                 })
                 scan_id = scan_insert.lastrowid
@@ -1178,6 +1179,7 @@ class DatabaseConnection:
                             a.ai_output,
                             a.created_at,
                             s.extracted_text,
+                            s.image_url,
                             u.id AS user_id,
                             u.name AS user_name,
                             u.email AS user_email,
@@ -1238,6 +1240,7 @@ class DatabaseConnection:
                             "id": row.get("id"),
                             "scan_id": row.get("scan_id"),
                             "raw_text": row.get("extracted_text"),
+                            "image_url": row.get("image_url"),
                             "summary": row.get("summary"),
                             "recommendation": row.get("recommendation"),
                             "status": row.get("status"),
@@ -1336,6 +1339,7 @@ class DatabaseConnection:
                     # Always include joined context columns
                     cols.extend([
                         "s.extracted_text",
+                        "s.image_url",
                         "u.id AS user_id",
                         "u.name AS user_name",
                         "u.email AS user_email",
@@ -1395,6 +1399,7 @@ class DatabaseConnection:
                             # Ensure identifiers and timestamps are present for clients
                             parsed.setdefault("analysis_id", base_row.get("id"))
                             parsed.setdefault("id", base_row.get("id"))
+                            parsed.setdefault("image_url", base_row.get("image_url"))
                             parsed.setdefault("created_at", self._to_iso_datetime(base_row.get("created_at")))
                             return parsed
 
