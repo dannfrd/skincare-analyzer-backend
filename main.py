@@ -77,10 +77,15 @@ async def startup_event():
     def _check_recurring_notifications():
         """Called every minute by APScheduler. Sends repeat_daily notifications at their repeat_time."""
         try:
+            from datetime import timedelta
+            wib_tz = timezone(timedelta(hours=7))
+            
             from database.db_connection import get_db_connection as _get_db
             db = next(_get_db())
-            now_str = datetime.now().strftime("%H:%M")
-            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            now_wib = datetime.now(wib_tz)
+            now_str = now_wib.strftime("%H:%M")
+            today_str = now_wib.strftime("%Y-%m-%d")
 
             candidates = db.get_recurring_notifications()
             for notif in candidates:
