@@ -187,6 +187,13 @@ ON DUPLICATE KEY UPDATE
 -- UPGRADE EXISTING DATABASE
 -- Statements ini aman dijalankan ulang melalui run_migration.py.
 -- =========================
+ALTER TABLE notifications
+    ADD COLUMN repeat_daily TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = kirim ulang setiap hari';
+ALTER TABLE notifications
+    ADD COLUMN repeat_time VARCHAR(5) NULL COMMENT 'Jam pengiriman harian, format HH:MM (WIB)';
+ALTER TABLE notifications
+    ADD COLUMN last_sent_at DATETIME NULL COMMENT 'Terakhir berhasil dikirim oleh scheduler';
+
 ALTER TABLE scan_ingredients
     ADD COLUMN position_index INT NOT NULL DEFAULT 0;
 ALTER TABLE scan_ingredients
@@ -274,6 +281,9 @@ CREATE TABLE IF NOT EXISTS notifications (
     scheduled_at TIMESTAMP NULL,
     sent_at TIMESTAMP NULL,
     sent_by INT NULL,
+    repeat_daily TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = kirim ulang setiap hari',
+    repeat_time VARCHAR(5) NULL COMMENT 'Jam pengiriman harian, format HH:MM (WIB)',
+    last_sent_at DATETIME NULL COMMENT 'Terakhir berhasil dikirim oleh scheduler',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_notifications_user
