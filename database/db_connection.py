@@ -2046,6 +2046,7 @@ class DatabaseConnection:
                         a.status,
                         a.created_at,
                         s.extracted_text,
+                        s.image_url,
                         u.id AS user_id,
                         u.name AS user_name,
                         u.email AS user_email,
@@ -2071,6 +2072,7 @@ class DatabaseConnection:
                         a.status,
                         a.created_at,
                         s.extracted_text,
+                        s.image_url,
                         u.id,
                         u.name,
                         u.email,
@@ -2093,6 +2095,7 @@ class DatabaseConnection:
                     records.append({
                         "id": row.get("id"),
                         "scan_id": row.get("scan_id"),
+                        "image_url": row.get("image_url"),
                         "raw_text": row.get("extracted_text"),
                         "summary": row.get("summary"),
                         "recommendation": row.get("recommendation"),
