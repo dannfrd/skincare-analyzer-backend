@@ -81,7 +81,7 @@ async def startup_event():
             wib_tz = timezone(timedelta(hours=7))
             
             from database.db_connection import get_db_connection as _get_db
-            db = next(_get_db())
+            db = _get_db()
             
             now_wib = datetime.now(wib_tz)
             now_str = now_wib.strftime("%H:%M")
