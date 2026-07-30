@@ -15,6 +15,7 @@ COLLECTION_NAME = "skincare_ingredients"
 
 
 def _normalize_name(value: str) -> str:
+    value = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0]', ' ', value)
     normalized = re.sub(r"[^A-Za-z0-9\s\-\+\./]", " ", value.upper())
     return re.sub(r"\s+", " ", normalized).strip()
 
@@ -28,17 +29,21 @@ def _clip(value: str, max_len: int = 220) -> str:
     return compact[: max_len - 3].rstrip() + "..."
 
 
-def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
+def get_ingredient_simple_description(ingredient_name: str, client: Any = None) -> Dict[str, Any]:
     """
     Get simple description for a single ingredient from Qdrant.
+    Accepts optional `client` to reuse an open Qdrant connection across multiple lookups.
     """
     if not ingredient_name or not ingredient_name.strip():
         return {}
         
-    client = None
+    should_close = False
     try:
-        from modules.qdrant_client_factory import get_qdrant_client
-        client = get_qdrant_client()
+        if client is None:
+            from modules.qdrant_client_factory import get_qdrant_client
+            client = get_qdrant_client()
+            should_close = True
+            
         if not client.collection_exists(COLLECTION_NAME):
             return {}
             
@@ -102,8 +107,13 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
         else:
             simple_desc = ""
             
+        hit_payload_name = payload.get("name", ingredient_name)
+        nums_query = set(re.findall(r'\d+', ingredient_name))
+        nums_payload = set(re.findall(r'\d+', hit_payload_name))
+        final_name = ingredient_name.upper().strip() if (nums_query and not nums_payload) else hit_payload_name
+
         return {
-            "name": payload.get("name", ingredient_name),
+            "name": final_name,
             "simple_description": simple_desc,
             "functions": payload.get("functions", ""),
             "warnings": payload.get("warnings", ""),
@@ -120,7 +130,7 @@ def get_ingredient_simple_description(ingredient_name: str) -> Dict[str, Any]:
         print(f"Error querying Qdrant for {ingredient_name}: {e}")
         return {}
     finally:
-        if client is not None:
+        if should_close and client is not None:
             try:
                 client.close()
             except Exception:
@@ -146,7 +156,7 @@ def build_rag_context(
         if not client.collection_exists(COLLECTION_NAME):
             return "", {"enabled": False, "reason": "qdrant_collection_missing", "items": []}
 
-        max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "12"))
+        max_items = top_k or int(os.getenv("RAG_MAX_CONTEXT_ITEMS", "25"))
         seen_names = set()
 
         # Batch embedding generation for all tokens at once
@@ -190,15 +200,23 @@ def build_rag_context(
                 search_result = client.search(
                     collection_name=COLLECTION_NAME,
                     query_vector=vector,
-                    limit=1
+                    limit=3
                 )
                 
                 if not search_result:
                     continue
                     
-                best_hit = search_result[0]
-                # Threshold to prevent bad semantic matches
-                if best_hit.score < 0.55:
+                best_hit = None
+                for hit in search_result:
+                    if hit.score >= 0.55:
+                        p = hit.payload or {}
+                        if p.get("description") or p.get("found_in_products"):
+                            best_hit = hit
+                            break
+                if not best_hit and search_result[0].score >= 0.55:
+                    best_hit = search_result[0]
+
+                if not best_hit:
                     continue
                     
                 payload = best_hit.payload
@@ -213,6 +231,10 @@ def build_rag_context(
                 seen_names.add(name.upper())
                 
                 item_data = dict(payload)
+                nums_token = set(re.findall(r'\d+', token))
+                nums_payload = set(re.findall(r'\d+', str(payload.get("name", ""))))
+                if nums_token and not nums_payload:
+                    item_data["name"] = token.upper().strip()
                 item_data["token"] = token
                 item_data["match_type"] = f"semantic (score: {best_hit.score:.2f})"
                 selected_items.append(item_data)

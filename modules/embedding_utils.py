@@ -1,45 +1,237 @@
 import warnings
+import os
+import requests
+import numpy as np
 from typing import List
 
-# Suppress HuggingFace/PyTorch warnings during load
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    from sentence_transformers import SentenceTransformer
+# Mencegah HuggingFace Hub melakukan request telemetry/cek online yang tidak perlu
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-# Initialize the model lazily
+# Coba impor sentence_transformers secara aman (tidak crash jika library dihapus untuk menghemat RAM)
+SentenceTransformer = None
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from sentence_transformers import SentenceTransformer
+except ImportError:
+    pass
+
+# Initialize the local model lazily if needed
 _model = None
+_genai_client = None
+_legacy_genai = None
+
+def _get_genai_client():
+    """Mendapatkan Client google-genai secara aman untuk menghindari circular import."""
+    global _genai_client
+    if _genai_client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            try:
+                from google import genai
+                _genai_client = genai.Client(api_key=api_key)
+                print("✓ Google GenAI Client untuk embedding berhasil diinisialisasi.")
+            except ImportError:
+                pass
+    return _genai_client
+
+def _get_legacy_genai():
+    """Mendapatkan SDK legacy google-generativeai secara aman sebagai fallback."""
+    global _legacy_genai
+    if _legacy_genai is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                _legacy_genai = genai
+                print("✓ Legacy Google GenerativeAI Client untuk embedding berhasil diinisialisasi.")
+            except ImportError:
+                pass
+    return _legacy_genai
+
+def _get_embedding_from_google(texts: List[str]) -> List[List[float]] | None:
+    """Mengambil embedding dari model resmi Google (text-embedding-004) dengan dimensi 384."""
+    # 1. Coba menggunakan SDK baru (google-genai)
+    client = _get_genai_client()
+    if client:
+        try:
+            from google.genai import types
+            response = client.models.embed_content(
+                model="text-embedding-004",
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=384
+                )
+            )
+            if response and response.embeddings:
+                return [emb.values for emb in response.embeddings]
+        except Exception as e:
+            print(f"Google GenAI (text-embedding-004) API error: {e}")
+
+    # 2. Coba menggunakan SDK legacy (google-generativeai)
+    legacy_genai = _get_legacy_genai()
+    if legacy_genai:
+        try:
+            response = legacy_genai.embed_content(
+                model="models/text-embedding-004",
+                content=texts,
+                output_dimensionality=384
+            )
+            embeddings = response.get('embedding')
+            if isinstance(embeddings, list) and len(embeddings) > 0:
+                if isinstance(embeddings[0], list):
+                    return embeddings
+                else:
+                    return [embeddings]
+        except Exception as e:
+            print(f"Legacy Google GenerativeAI API error: {e}")
+
+    return None
+
+def _get_embedding_from_api(texts: List[str]) -> List[List[float]] | None:
+    """Mengambil embedding menggunakan Hugging Face Serverless Inference API (Paling cepat & 0MB RAM lokal)."""
+    token = os.getenv("HF_TOKEN") or os.getenv("HF_API_KEY")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    
+    # URL Endpoint resmi Serverless Feature Extraction
+    API_URL = "https://api-inference.huggingface.co/models/BAAI/bge-small-en-v1.5"
+    
+    try:
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={"inputs": texts, "options": {"wait_for_model": True}},
+            timeout=8
+        )
+        if response.status_code == 200:
+            res_json = response.json()
+            if isinstance(res_json, list) and len(res_json) > 0:
+                normalized_embeddings = []
+                for emb in res_json:
+                    # Normalisasi vektor agar cocok dengan cosine similarity RAG
+                    if isinstance(emb, list):
+                        arr = np.array(emb, dtype=np.float32)
+                        norm = np.linalg.norm(arr)
+                        if norm > 0:
+                            arr = arr / norm
+                        normalized_embeddings.append(arr.tolist())
+                    else:
+                        return None
+                return normalized_embeddings
+    except Exception as e:
+        print(f"HF Inference API connection info (offline/timeout): {e}")
+    return None
 
 def _get_model():
+    """Mengambil model sentence-transformers secara lokal jika pustaka terpasang."""
     global _model
+    if SentenceTransformer is None:
+        print("Peringatan: sentence-transformers tidak terpasang. Fallback lokal dilewati.")
+        return None
+
     if _model is None:
-        print("Loading local embedding model (all-MiniLM-L6-v2)...")
-        # Load a small and fast local model for semantic search
-        _model = SentenceTransformer('all-MiniLM-L6-v2')
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_path = os.path.join(project_root, "model_bge")
+        print("Memuat local embedding model...")
+        
+        # 1. Coba load dari folder proyek 'model_bge' yang sudah berhasil didownload penuh
+        try:
+            if os.path.exists(local_path):
+                _model = SentenceTransformer(local_path)
+                print("✓ Embedding model berhasil dimuat dari folder lokal proyek 'model_bge'.")
+                return _model
+        except Exception as e_local:
+            print(f"Gagal memuat dari folder lokal 'model_bge' ({e_local}). Mencoba cache HuggingFace...")
+
+        # 2. Coba load dari cache global Hugging Face (.cache/huggingface/hub)
+        model_name = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+        try:
+            _model = SentenceTransformer(model_name, local_files_only=True)
+            print(f"✓ Embedding model '{model_name}' dimuat dari cache global.")
+        except Exception:
+            try:
+                # Coba download dari internet jika belum ada di cache
+                import huggingface_hub.constants
+                huggingface_hub.constants.HF_ENDPOINT = "https://huggingface.co"
+                if "HF_ENDPOINT" in os.environ:
+                    del os.environ["HF_ENDPOINT"]
+                _model = SentenceTransformer(model_name, local_files_only=False)
+                print(f"✓ Berhasil mengunduh '{model_name}' dari Hugging Face.")
+            except Exception:
+                # 3. AUTO-FALLBACK: Jika offline total, muat model 'all-MiniLM-L6-v2' dari cache
+                print("🔄 AUTO-FALLBACK: Memuat model 'all-MiniLM-L6-v2' dari cache lokal...")
+                _model = SentenceTransformer('all-MiniLM-L6-v2', local_files_only=True)
+                print("✓ Auto-Fallback berhasil!")
     return _model
 
 def get_embedding(text: str) -> List[float]:
-    """Generate a vector embedding using a local SentenceTransformer model."""
+    """Generate a vector embedding using the configured engine in env (Google, HuggingFace, or Local)."""
     try:
+        engine = os.getenv("EMBEDDING_ENGINE", "huggingface").lower().strip()
+        
+        # 1. Google GenAI (text-embedding-004)
+        if engine == "google":
+            google_res = _get_embedding_from_google([text])
+            if google_res and len(google_res) > 0:
+                return google_res[0]
+        
+        # 2. Hugging Face Serverless API (BAAI/bge-small-en-v1.5)
+        elif engine == "huggingface":
+            api_res = _get_embedding_from_api([text])
+            if api_res and len(api_res) > 0:
+                return api_res[0]
+            
+            # Jika HF API gagal, coba otomatis ke Google
+            google_res = _get_embedding_from_google([text])
+            if google_res and len(google_res) > 0:
+                return google_res[0]
+        
+        # Fallback ke model lokal jika engine adalah "local" atau cloud API gagal
         model = _get_model()
-        # Encode text to vector and convert to flat list of floats
-        vector = model.encode(text).tolist()
-        return vector
+        if model:
+            vector = model.encode(text, normalize_embeddings=True).tolist()
+            return vector
+            
     except Exception as e:
-        print(f"Error generating embedding locally: {e}")
-        # fallback to zero vector to prevent hard crash
-        return [0.0] * 384
+        print(f"Error generating embedding: {e}")
+        
+    return [0.0] * 384
 
 def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
-    """Generate vector embeddings in batch using a local SentenceTransformer model."""
+    """Generate batch vector embeddings using the configured engine."""
     if not texts:
         return []
     try:
+        engine = os.getenv("EMBEDDING_ENGINE", "huggingface").lower().strip()
+        
+        # 1. Google GenAI (text-embedding-004)
+        if engine == "google":
+            google_res = _get_embedding_from_google(texts)
+            if google_res:
+                return google_res
+        
+        # 2. Hugging Face Serverless API (BAAI/bge-small-en-v1.5)
+        elif engine == "huggingface":
+            api_res = _get_embedding_from_api(texts)
+            if api_res:
+                return api_res
+            
+            # Jika HF API gagal, coba otomatis ke Google
+            google_res = _get_embedding_from_google(texts)
+            if google_res:
+                return google_res
+        
+        # Fallback ke model lokal
         model = _get_model()
-        # Encode texts to vectors and convert to list of lists of floats
-        vectors = model.encode(texts).tolist()
-        return vectors
+        if model:
+            vectors = model.encode(texts, normalize_embeddings=True).tolist()
+            return vectors
+            
     except Exception as e:
-        print(f"Error generating batch embeddings locally: {e}")
-        # fallback to zero vectors to prevent hard crash
-        return [[0.0] * 384 for _ in texts]
+        print(f"Error generating batch embeddings: {e}")
+        
+    return [[0.0] * 384 for _ in texts]
+
 

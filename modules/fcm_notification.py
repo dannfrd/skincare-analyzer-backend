@@ -3,12 +3,25 @@ from firebase_admin import credentials, messaging
 import os
 
 # Path ke file service account JSON
-FIREBASE_CRED_PATH = os.path.join(os.path.dirname(__file__), '../dermify-e69de-firebase-adminsdk-fbsvc-eb6e0455ca.json')
+_env_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+_local_path = os.path.join(os.path.dirname(__file__), '../dermify-e69de-firebase-adminsdk-fbsvc-769f097d9f.json')
+
+if _env_path and os.path.exists(_env_path):
+    FIREBASE_CRED_PATH = _env_path
+else:
+    FIREBASE_CRED_PATH = _local_path
 
 # Inisialisasi Firebase Admin SDK (hanya sekali)
 if not firebase_admin._apps:
-    cred = credentials.Certificate(FIREBASE_CRED_PATH)
-    firebase_admin.initialize_app(cred)
+    if os.path.exists(FIREBASE_CRED_PATH):
+        try:
+            cred = credentials.Certificate(FIREBASE_CRED_PATH)
+            firebase_admin.initialize_app(cred)
+            print(f"[FCM] Firebase Admin SDK initialized using {FIREBASE_CRED_PATH}")
+        except Exception as e:
+            print(f"[FCM] Warning: Failed to initialize Firebase Admin SDK: {e}")
+    else:
+        print(f"[FCM] Warning: Firebase credentials file not found at '{FIREBASE_CRED_PATH}'. Push notifications disabled.")
 
 def send_notification_to_all(title: str, body: str, data: dict = None):
     """
@@ -17,6 +30,8 @@ def send_notification_to_all(title: str, body: str, data: dict = None):
     :param body: Isi pesan notifikasi
     :param data: Data tambahan (opsional)
     """
+    if not firebase_admin._apps:
+        return {"status": "disabled", "reason": "Firebase Admin SDK not initialized"}
     message = messaging.Message(
         notification=messaging.Notification(
             title=title,
@@ -35,6 +50,8 @@ def send_notification(title: str, body: str, data: dict | None = None, topic: st
     If `topic` is provided, message is sent to that topic. If `tokens` is provided and non-empty,
     a multicast message will be sent to those tokens. Returns Firebase response object or dict.
     """
+    if not firebase_admin._apps:
+        return {"status": "disabled", "reason": "Firebase Admin SDK not initialized"}
     if topic:
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
@@ -54,7 +71,7 @@ def send_notification(title: str, body: str, data: dict | None = None, topic: st
             tokens=tokens_list,
             data=data or {}
         )
-        response = messaging.send_multicast(multicast)
+        response = messaging.send_each_for_multicast(multicast)
         # Return a simple dict summary
         return {
             "success_count": response.success_count,

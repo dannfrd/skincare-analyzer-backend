@@ -23,7 +23,7 @@ QDRANT_DATA_DIR = os.path.join(
 )
 
 COLLECTION_NAME = "skincare_ingredients"
-VECTOR_SIZE = 384  # sentence-transformers all-MiniLM-L6-v2
+VECTOR_SIZE = 384  # BAAI/bge-small-en-v1.5 (SOTA 384-dim drop-in upgrade) or all-MiniLM-L6-v2
 
 
 def get_qdrant_client() -> QdrantClient:

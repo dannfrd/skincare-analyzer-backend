@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NULL DEFAULT 'user',
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     provider ENUM('manual','google') NULL DEFAULT 'manual',
-    firebase_uid VARCHAR(255) NULL
+    firebase_uid VARCHAR(255) NULL,
+    reset_otp VARCHAR(10) NULL,
+    reset_otp_expires_at TIMESTAMP NULL
 );
 
 -- =========================
@@ -185,6 +187,13 @@ ON DUPLICATE KEY UPDATE
 -- UPGRADE EXISTING DATABASE
 -- Statements ini aman dijalankan ulang melalui run_migration.py.
 -- =========================
+ALTER TABLE notifications
+    ADD COLUMN repeat_daily TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = kirim ulang setiap hari';
+ALTER TABLE notifications
+    ADD COLUMN repeat_time VARCHAR(5) NULL COMMENT 'Jam pengiriman harian, format HH:MM (WIB)';
+ALTER TABLE notifications
+    ADD COLUMN last_sent_at DATETIME NULL COMMENT 'Terakhir berhasil dikirim oleh scheduler';
+
 ALTER TABLE scan_ingredients
     ADD COLUMN position_index INT NOT NULL DEFAULT 0;
 ALTER TABLE scan_ingredients
@@ -208,8 +217,18 @@ ALTER TABLE analyses
     ADD COLUMN ai_output LONGTEXT;
 ALTER TABLE analyses
     ADD COLUMN raw_result LONGTEXT;
+ALTER TABLE products
+    ADD COLUMN image_url VARCHAR(255) NULL AFTER description;
 ALTER TABLE users
     ADD COLUMN profile_picture VARCHAR(255) NULL AFTER firebase_uid;
+ALTER TABLE users
+    ADD COLUMN fcm_token TEXT NULL AFTER profile_picture;
+ALTER TABLE users
+    ADD COLUMN device_token TEXT NULL AFTER fcm_token;
+ALTER TABLE users
+    ADD COLUMN reset_otp VARCHAR(10) NULL AFTER device_token;
+ALTER TABLE users
+    ADD COLUMN reset_otp_expires_at TIMESTAMP NULL AFTER reset_otp;
 
 DELETE duplicate_detail
 FROM analysis_details duplicate_detail
@@ -262,6 +281,9 @@ CREATE TABLE IF NOT EXISTS notifications (
     scheduled_at TIMESTAMP NULL,
     sent_at TIMESTAMP NULL,
     sent_by INT NULL,
+    repeat_daily TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = kirim ulang setiap hari',
+    repeat_time VARCHAR(5) NULL COMMENT 'Jam pengiriman harian, format HH:MM (WIB)',
+    last_sent_at DATETIME NULL COMMENT 'Terakhir berhasil dikirim oleh scheduler',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_notifications_user

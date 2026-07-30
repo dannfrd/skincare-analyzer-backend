@@ -73,6 +73,11 @@ class ResetPasswordPayload(BaseModel):
     email: EmailStr
     new_password: str
 
+class ResetPasswordOtpPayload(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
 
 def _ensure_firebase_initialized() -> None:
     try:
@@ -312,6 +317,49 @@ def reset_password(payload: ResetPasswordPayload, db: Session = Depends(get_db_s
         {"password": hashed_pw, "email": payload.email}
     )
     db.commit()
+    return {"status": "success", "message": "Password berhasil diubah. Silakan login."}
+
+import random
+from datetime import datetime, timedelta
+from database.db_connection import get_db_connection
+from modules.email_service import send_otp_email
+
+@router.post("/forgot-password-otp")
+def forgot_password_otp(payload: ForgotPasswordPayload):
+    db_conn = get_db_connection()
+    user = db_conn.get_admin_user_by_email(payload.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Email tidak terdaftar dalam sistem.")
+    
+    otp_code = str(random.randint(100000, 999999))
+    expires_at = datetime.now() + timedelta(minutes=10)
+    
+    if db_conn.set_reset_otp(payload.email, otp_code, expires_at):
+        if send_otp_email(payload.email, otp_code):
+            return {"status": "success", "message": "Kode OTP telah dikirim ke email Anda."}
+        else:
+            raise HTTPException(status_code=500, detail="Gagal mengirim email OTP.")
+    else:
+        raise HTTPException(status_code=500, detail="Gagal meng-generate OTP.")
+
+@router.post("/reset-password-otp")
+def reset_password_otp(payload: ResetPasswordOtpPayload):
+    db_conn = get_db_connection()
+    user = db_conn.get_admin_user_by_email(payload.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Email tidak terdaftar dalam sistem.")
+    
+    if not db_conn.verify_and_clear_reset_otp(payload.email, payload.otp):
+        raise HTTPException(status_code=400, detail="Kode OTP salah atau sudah kedaluwarsa.")
+    
+    _validate_password_policy(payload.new_password)
+    hashed_pw = get_password_hash(payload.new_password)
+    
+    with db_conn.engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET password = :password WHERE email = :email"),
+            {"password": hashed_pw, "email": payload.email}
+        )
     return {"status": "success", "message": "Password berhasil diubah. Silakan login."}
 
 @router.post("/google")

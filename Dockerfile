@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
@@ -18,7 +18,15 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu \
     torch
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Pasang PaddlePaddle CPU langsung dari Baidu (menghindari timeout pip index global)
+RUN pip install --no-cache-dir paddlepaddle==2.6.1 \
+    -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+
+# Install uv for blazing fast dependency resolution
+RUN pip install --no-cache-dir uv
+
+# Install dependencies using uv
+RUN uv pip install --system --no-cache-dir -r requirements.txt
 
 COPY . .
 

@@ -83,6 +83,7 @@ class DatabaseConnection:
         product_name: Optional[str] = None,
         product_brand: Optional[str] = None,
         product_category: Optional[str] = None,
+        image_url: Optional[str] = None,
     ) -> Optional[int]:
         """
         Simpan satu hasil scan ke seluruh tabel relasional dalam satu transaksi.
@@ -137,11 +138,12 @@ class DatabaseConnection:
                 scan_insert = conn.execute(text(
                     """
                     INSERT INTO scans (user_id, product_id, image_url, extracted_text, created_at)
-                    VALUES (:user_id, :product_id, NULL, :extracted_text, NOW())
+                    VALUES (:user_id, :product_id, :image_url, :extracted_text, NOW())
                     """
                 ), {
                     "user_id": resolved_user_id,
                     "product_id": product_id,
+                    "image_url": image_url,
                     "extracted_text": raw_text,
                 })
                 scan_id = scan_insert.lastrowid
@@ -313,12 +315,15 @@ class DatabaseConnection:
                 continue
 
             # 2. Auto-insert ingredients backed by DB matching or the dataset.
-            desc = str(
+            desc_val = str(
                 ingredient.get("dataset_description") or ingredient.get("description") or ""
             ).strip()
-            func = str(
+            desc = desc_val if desc_val and desc_val.lower() != "unknown" else "Bahan kosmetik / perawatan kulit umum."
+
+            func_val = str(
                 ingredient.get("dataset_functions") or ingredient.get("function") or ""
-            ).strip() or "Unknown"
+            ).strip()
+            func = func_val if func_val and func_val.lower() != "unknown" else "General Skincare Ingredient"
 
             # Determine risk level
             if ingredient.get("dataset_harmful"):
@@ -480,10 +485,12 @@ class DatabaseConnection:
             
             # Menggunakan data dari Qdrant (RAG) jika tersedia
             dataset_functions = str(ingredient.get("dataset_functions") or "").strip()
-            function_text = dataset_functions if dataset_functions else str(ingredient.get("function") or "Unknown")
+            raw_func = dataset_functions if dataset_functions else str(ingredient.get("function") or "")
+            function_text = raw_func.strip() if raw_func.strip() and raw_func.strip().lower() != "unknown" else "General Skincare Ingredient"
             
             dataset_description = str(ingredient.get("dataset_description") or "").strip()
-            benefit_text = dataset_description if dataset_description else str(ingredient.get("description") or "")
+            raw_benefit = dataset_description if dataset_description else str(ingredient.get("description") or "")
+            benefit_text = raw_benefit.strip() if raw_benefit.strip() and raw_benefit.strip().lower() != "unknown" else "Komponen formula perawatan kulit untuk menjaga tekstur dan efektivitas produk."
 
             risk_parts: List[str] = []
             
@@ -671,7 +678,7 @@ class DatabaseConnection:
         return insert.lastrowid
 
     # --- Notifications CRUD helpers ---
-    def create_notification(self, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str = "draft", scheduled_at: Optional[str] = None, sent_by: Optional[int] = None) -> Optional[int]:
+    def create_notification(self, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str = "draft", scheduled_at: Optional[str] = None, sent_by: Optional[int] = None, repeat_daily: bool = False, repeat_time: Optional[str] = None) -> Optional[int]:
         if not self.engine:
             return None
         try:
@@ -717,7 +724,7 @@ class DatabaseConnection:
 
             with self.engine.begin() as conn:
                 insert = conn.execute(text(
-                    "INSERT INTO notifications (title, body, data, topic, tokens, status, scheduled_at, sent_by, created_at) VALUES (:title, :body, :data, :topic, :tokens, :status, :scheduled_at, :sent_by, NOW())"
+                    "INSERT INTO notifications (title, body, data, topic, tokens, status, scheduled_at, sent_by, repeat_daily, repeat_time, created_at) VALUES (:title, :body, :data, :topic, :tokens, :status, :scheduled_at, :sent_by, :repeat_daily, :repeat_time, NOW())"
                 ), {
                     "title": title,
                     "body": body,
@@ -727,6 +734,8 @@ class DatabaseConnection:
                     "status": status,
                     "scheduled_at": sched_val,
                     "sent_by": sent_by,
+                    "repeat_daily": 1 if repeat_daily else 0,
+                    "repeat_time": repeat_time,
                 })
                 try:
                     return insert.lastrowid
@@ -749,7 +758,7 @@ class DatabaseConnection:
                 if not self._table_exists(conn, "notifications"):
                     return []
                 query = text(
-                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, created_at FROM notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, repeat_daily, repeat_time, last_sent_at, created_at FROM notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
                 )
                 rows = conn.execute(query, {"limit": limit, "offset": offset}).mappings().all()
                 results: List[Dict[str, Any]] = []
@@ -767,6 +776,9 @@ class DatabaseConnection:
                             tokens_val = json.loads(tokens_val)
                         except Exception:
                             pass
+                    target_user_id = None
+                    if isinstance(data_val, dict):
+                        target_user_id = data_val.get("target_user_id") or data_val.get("user_id")
 
                     results.append({
                         "id": row.get("id"),
@@ -775,10 +787,15 @@ class DatabaseConnection:
                         "data": data_val,
                         "topic": row.get("topic"),
                         "tokens": tokens_val,
+                        "user_id": target_user_id,
+                        "target_user_id": target_user_id,
                         "status": row.get("status"),
                         "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
                         "sent_at": self._to_iso_datetime(row.get("sent_at")),
                         "sent_by": row.get("sent_by"),
+                        "repeat_daily": bool(row.get("repeat_daily")),
+                        "repeat_time": row.get("repeat_time"),
+                        "last_sent_at": self._to_iso_datetime(row.get("last_sent_at")),
                         "created_at": self._to_iso_datetime(row.get("created_at")),
                     })
                 return results
@@ -794,7 +811,7 @@ class DatabaseConnection:
                 if not self._table_exists(conn, "notifications"):
                     return None
                 row = conn.execute(text(
-                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, created_at FROM notifications WHERE id = :id LIMIT 1"
+                    "SELECT id, title, body, data, topic, tokens, status, scheduled_at, sent_at, sent_by, repeat_daily, repeat_time, last_sent_at, created_at FROM notifications WHERE id = :id LIMIT 1"
                 ), {"id": notification_id}).mappings().first()
                 if not row:
                     return None
@@ -812,6 +829,9 @@ class DatabaseConnection:
                         tokens_val = json.loads(tokens_val)
                     except Exception:
                         pass
+                target_user_id = None
+                if isinstance(data_val, dict):
+                    target_user_id = data_val.get("target_user_id") or data_val.get("user_id")
 
                 return {
                     "id": row.get("id"),
@@ -820,10 +840,15 @@ class DatabaseConnection:
                     "data": data_val,
                     "topic": row.get("topic"),
                     "tokens": tokens_val,
+                    "user_id": target_user_id,
+                    "target_user_id": target_user_id,
                     "status": row.get("status"),
                     "scheduled_at": self._to_iso_datetime(row.get("scheduled_at")),
                     "sent_at": self._to_iso_datetime(row.get("sent_at")),
                     "sent_by": row.get("sent_by"),
+                    "repeat_daily": bool(row.get("repeat_daily")),
+                    "repeat_time": row.get("repeat_time"),
+                    "last_sent_at": self._to_iso_datetime(row.get("last_sent_at")),
                     "created_at": self._to_iso_datetime(row.get("created_at")),
                 }
         except Exception as e:
@@ -856,7 +881,7 @@ class DatabaseConnection:
             logger.error(f"Error marking notification failed: {e}")
             return False
 
-    def update_notification(self, notification_id: int, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str, scheduled_at: Optional[str] = None) -> bool:
+    def update_notification(self, notification_id: int, title: str, body: Optional[str], data: Optional[Dict[str, Any]], topic: Optional[str], tokens: Optional[list], status: str, scheduled_at: Optional[str] = None, repeat_daily: bool = False, repeat_time: Optional[str] = None) -> bool:
         if not self.engine:
             return False
         try:
@@ -904,7 +929,9 @@ class DatabaseConnection:
                         topic = :topic,
                         tokens = :tokens,
                         status = :status,
-                        scheduled_at = :scheduled_at
+                        scheduled_at = :scheduled_at,
+                        repeat_daily = :repeat_daily,
+                        repeat_time = :repeat_time
                     WHERE id = :id
                     """
                 ), {
@@ -915,7 +942,9 @@ class DatabaseConnection:
                     "topic": topic,
                     "tokens": tokens_val,
                     "status": status,
-                    "scheduled_at": sched_val
+                    "scheduled_at": sched_val,
+                    "repeat_daily": 1 if repeat_daily else 0,
+                    "repeat_time": repeat_time,
                 })
                 return True
         except Exception as e:
@@ -931,6 +960,63 @@ class DatabaseConnection:
                 return True
         except Exception as e:
             logger.error(f"Error deleting notification: {e}")
+            return False
+
+    def get_recurring_notifications(self) -> List[Dict[str, Any]]:
+        """Return all active recurring notifications for the daily scheduler."""
+        if not self.engine:
+            return []
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "notifications"):
+                    return []
+                rows = conn.execute(text(
+                    "SELECT id, title, body, data, topic, tokens, repeat_time, last_sent_at "
+                    "FROM notifications "
+                    "WHERE repeat_daily = 1 AND status NOT IN ('disabled', 'failed') "
+                    "ORDER BY id"
+                )).mappings().all()
+                results = []
+                for row in rows:
+                    data_val = row.get("data")
+                    if isinstance(data_val, str):
+                        try:
+                            data_val = json.loads(data_val)
+                        except Exception:
+                            pass
+                    tokens_val = row.get("tokens")
+                    if isinstance(tokens_val, str):
+                        try:
+                            tokens_val = json.loads(tokens_val)
+                        except Exception:
+                            pass
+                    results.append({
+                        "id": row.get("id"),
+                        "title": row.get("title"),
+                        "body": row.get("body"),
+                        "data": data_val,
+                        "topic": row.get("topic"),
+                        "tokens": tokens_val,
+                        "repeat_time": row.get("repeat_time"),
+                        "last_sent_at": row.get("last_sent_at"),
+                    })
+                return results
+        except Exception as e:
+            logger.error(f"Error fetching recurring notifications: {e}")
+            return []
+
+    def update_last_sent_at(self, notification_id: int) -> bool:
+        """Stamp last_sent_at = NOW() after a recurring send."""
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE notifications SET last_sent_at = NOW() WHERE id = :id"
+                ), {"id": notification_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error updating last_sent_at: {e}")
             return False
 
     @staticmethod
@@ -1093,6 +1179,7 @@ class DatabaseConnection:
                             a.ai_output,
                             a.created_at,
                             s.extracted_text,
+                            s.image_url,
                             u.id AS user_id,
                             u.name AS user_name,
                             u.email AS user_email,
@@ -1153,6 +1240,7 @@ class DatabaseConnection:
                             "id": row.get("id"),
                             "scan_id": row.get("scan_id"),
                             "raw_text": row.get("extracted_text"),
+                            "image_url": row.get("image_url"),
                             "summary": row.get("summary"),
                             "recommendation": row.get("recommendation"),
                             "status": row.get("status"),
@@ -1251,6 +1339,7 @@ class DatabaseConnection:
                     # Always include joined context columns
                     cols.extend([
                         "s.extracted_text",
+                        "s.image_url",
                         "u.id AS user_id",
                         "u.name AS user_name",
                         "u.email AS user_email",
@@ -1310,6 +1399,7 @@ class DatabaseConnection:
                             # Ensure identifiers and timestamps are present for clients
                             parsed.setdefault("analysis_id", base_row.get("id"))
                             parsed.setdefault("id", base_row.get("id"))
+                            parsed.setdefault("image_url", base_row.get("image_url"))
                             parsed.setdefault("created_at", self._to_iso_datetime(base_row.get("created_at")))
                             return parsed
 
@@ -1702,6 +1792,238 @@ class DatabaseConnection:
             logger.error(f"Error fetching user list: {e}")
             return []
 
+    def _available_user_columns(self, conn) -> set[str]:
+        rows = conn.execute(text("SHOW COLUMNS FROM users")).mappings().all()
+        return {str(row.get("Field")) for row in rows if row.get("Field")}
+
+    def _normalize_admin_user(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        user = dict(row)
+        user.pop("password", None)
+        for key in ("role", "provider", "firebase_uid", "profile_picture", "fcm_token", "device_token"):
+            user.setdefault(key, None)
+        user["created_at"] = self._to_iso_datetime(user.get("created_at"))
+        user.setdefault("analysis_count", 0)
+        user.setdefault("last_analysis_at", None)
+        return user
+
+    def get_admin_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return None
+
+                columns = self._available_user_columns(conn)
+                allowed = [
+                    "id",
+                    "name",
+                    "email",
+                    "role",
+                    "provider",
+                    "firebase_uid",
+                    "profile_picture",
+                    "fcm_token",
+                    "device_token",
+                    "created_at",
+                ]
+                select_columns = [column for column in allowed if column in columns]
+                if not {"id", "email"}.issubset(select_columns):
+                    return None
+
+                row = conn.execute(text(
+                    f"SELECT {', '.join(select_columns)} FROM users WHERE id = :id LIMIT 1"
+                ), {"id": user_id}).mappings().first()
+
+                return self._normalize_admin_user(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching admin user by id: {e}")
+            return None
+
+    def get_admin_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return None
+                row = conn.execute(text(
+                    "SELECT id, name, email, role, provider, created_at FROM users WHERE email = :email LIMIT 1"
+                ), {"email": email}).mappings().first()
+                return self._normalize_admin_user(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching admin user by email: {e}")
+            return None
+
+    def create_admin_user(
+        self,
+        name: Optional[str],
+        email: str,
+        password_hash: str,
+        role: Optional[str] = "user",
+        provider: Optional[str] = "manual",
+        firebase_uid: Optional[str] = None,
+    ) -> Optional[int]:
+        if not self.engine:
+            return None
+        try:
+            with self.engine.begin() as conn:
+                if not self._table_exists(conn, "users"):
+                    return None
+
+                columns = self._available_user_columns(conn)
+                payload = {
+                    "name": name,
+                    "email": email,
+                    "password": password_hash,
+                    "role": role or "user",
+                    "provider": provider or "manual",
+                    "firebase_uid": firebase_uid,
+                }
+                insert_payload = {key: value for key, value in payload.items() if key in columns}
+                if "email" not in insert_payload or "password" not in insert_payload:
+                    return None
+
+                column_sql = ", ".join(insert_payload.keys())
+                value_sql = ", ".join(f":{key}" for key in insert_payload.keys())
+                insert = conn.execute(text(
+                    f"INSERT INTO users ({column_sql}) VALUES ({value_sql})"
+                ), insert_payload)
+                return insert.lastrowid
+        except Exception as e:
+            logger.error(f"Error creating admin user: {e}")
+            return None
+
+    def update_admin_user(
+        self,
+        user_id: int,
+        name: Optional[str] = None,
+        email: Optional[str] = None,
+        password_hash: Optional[str] = None,
+        role: Optional[str] = None,
+        provider: Optional[str] = None,
+        firebase_uid: Optional[str] = None,
+        profile_picture: Optional[str] = None,
+        fcm_token: Optional[str] = None,
+        device_token: Optional[str] = None,
+    ) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                if not self._table_exists(conn, "users"):
+                    return False
+
+                columns = self._available_user_columns(conn)
+                payload = {
+                    "name": name,
+                    "email": email,
+                    "password": password_hash,
+                    "role": role,
+                    "provider": provider,
+                    "firebase_uid": firebase_uid,
+                    "profile_picture": profile_picture,
+                    "fcm_token": fcm_token,
+                    "device_token": device_token,
+                }
+                updates = []
+                params: Dict[str, Any] = {"id": user_id}
+                for key, value in payload.items():
+                    if value is None or key not in columns:
+                        continue
+                    updates.append(f"{key} = :{key}")
+                    params[key] = value
+
+                if not updates:
+                    return True
+
+                conn.execute(text(
+                    "UPDATE users SET " + ", ".join(updates) + " WHERE id = :id"
+                ), params)
+                return True
+        except Exception as e:
+            logger.error(f"Error updating admin user: {e}")
+            return False
+
+    def delete_admin_user(self, user_id: int) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                if not self._table_exists(conn, "users"):
+                    return False
+                conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting admin user: {e}")
+            return False
+
+    def get_user_notification_tokens(self, user_id: int) -> List[str]:
+        if not self.engine:
+            return []
+        try:
+            with self.engine.connect() as conn:
+                if not self._table_exists(conn, "users"):
+                    return []
+
+                tokens: List[str] = []
+                user_columns = self._available_user_columns(conn)
+                token_columns = [column for column in ("fcm_token", "device_token") if column in user_columns]
+                if token_columns:
+                    row = conn.execute(text(
+                        f"SELECT {', '.join(token_columns)} FROM users WHERE id = :id LIMIT 1"
+                    ), {"id": user_id}).mappings().first()
+                    if row:
+                        for value in row.values():
+                            if value:
+                                tokens.extend(self._normalize_token_values(value))
+
+                for table_name in ("user_devices", "device_tokens", "user_device_tokens"):
+                    if not self._table_exists(conn, table_name):
+                        continue
+
+                    columns = {
+                        str(row.get("Field"))
+                        for row in conn.execute(text(f"SHOW COLUMNS FROM {table_name}")).mappings().all()
+                        if row.get("Field")
+                    }
+                    user_column = "user_id" if "user_id" in columns else None
+                    token_column = next(
+                        (column for column in ("fcm_token", "device_token", "token") if column in columns),
+                        None,
+                    )
+                    if not user_column or not token_column:
+                        continue
+
+                    rows = conn.execute(text(
+                        f"SELECT {token_column} AS token FROM {table_name} WHERE {user_column} = :id"
+                    ), {"id": user_id}).mappings().all()
+                    for row in rows:
+                        tokens.extend(self._normalize_token_values(row.get("token")))
+
+                return list(dict.fromkeys(token for token in tokens if token))
+        except Exception as e:
+            logger.error(f"Error fetching user notification tokens: {e}")
+            return []
+
+    def _normalize_token_values(self, value: Any) -> List[str]:
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                pass
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return [str(value).strip()]
+
     def get_analyses(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Returns a list of analyses with related user and product context."""
         if not self.engine:
@@ -1724,6 +2046,7 @@ class DatabaseConnection:
                         a.status,
                         a.created_at,
                         s.extracted_text,
+                        s.image_url,
                         u.id AS user_id,
                         u.name AS user_name,
                         u.email AS user_email,
@@ -1749,6 +2072,7 @@ class DatabaseConnection:
                         a.status,
                         a.created_at,
                         s.extracted_text,
+                        s.image_url,
                         u.id,
                         u.name,
                         u.email,
@@ -1771,6 +2095,7 @@ class DatabaseConnection:
                     records.append({
                         "id": row.get("id"),
                         "scan_id": row.get("scan_id"),
+                        "image_url": row.get("image_url"),
                         "raw_text": row.get("extracted_text"),
                         "summary": row.get("summary"),
                         "recommendation": row.get("recommendation"),
@@ -1871,6 +2196,7 @@ class DatabaseConnection:
                         p.brand,
                         p.category,
                         p.barcode,
+                        p.image_url,
                         p.created_at,
                         COUNT(DISTINCT s.id) AS scan_count,
                         COUNT(DISTINCT a.id) AS analysis_count
@@ -1883,6 +2209,7 @@ class DatabaseConnection:
                         p.brand,
                         p.category,
                         p.barcode,
+                        p.image_url,
                         p.created_at
                     ORDER BY p.created_at DESC
                     LIMIT :limit
@@ -1898,6 +2225,7 @@ class DatabaseConnection:
                         "brand": row.get("brand"),
                         "category": row.get("category"),
                         "barcode": row.get("barcode"),
+                        "image_url": row.get("image_url"),
                         "scan_count": row.get("scan_count") or 0,
                         "analysis_count": row.get("analysis_count") or 0,
                         "created_at": self._to_iso_datetime(row.get("created_at")),
@@ -1917,7 +2245,7 @@ class DatabaseConnection:
                 if not self._table_exists(conn, "products"):
                     return None
                 row = conn.execute(text(
-                    "SELECT id, name, brand, category, barcode, created_at FROM products WHERE id = :id LIMIT 1"
+                    "SELECT id, name, brand, category, barcode, image_url, created_at FROM products WHERE id = :id LIMIT 1"
                 ), {"id": product_id}).mappings().first()
                 if not row:
                     return None
@@ -1927,31 +2255,33 @@ class DatabaseConnection:
                     "brand": row.get("brand"),
                     "category": row.get("category"),
                     "barcode": row.get("barcode"),
+                    "image_url": row.get("image_url"),
                     "created_at": self._to_iso_datetime(row.get("created_at")),
                 }
         except Exception as e:
             logger.error(f"Error fetching product by id: {e}")
             return None
 
-    def create_product(self, name: str, brand: Optional[str], category: Optional[str], barcode: Optional[str]) -> Optional[int]:
+    def create_product(self, name: str, brand: Optional[str], category: Optional[str], barcode: Optional[str], image_url: Optional[str] = None) -> Optional[int]:
         if not self.engine:
             return None
         try:
             with self.engine.begin() as conn:
                 insert = conn.execute(text(
-                    "INSERT INTO products (name, brand, category, barcode, created_at) VALUES (:name, :brand, :category, :barcode, NOW())"
+                    "INSERT INTO products (name, brand, category, barcode, image_url, created_at) VALUES (:name, :brand, :category, :barcode, :image_url, NOW())"
                 ), {
                     "name": name,
                     "brand": brand,
                     "category": category,
                     "barcode": barcode,
+                    "image_url": image_url,
                 })
                 return insert.lastrowid
         except Exception as e:
             logger.error(f"Error creating product: {e}")
             return None
 
-    def update_product(self, product_id: int, name: Optional[str], brand: Optional[str], category: Optional[str], barcode: Optional[str]) -> bool:
+    def update_product(self, product_id: int, name: Optional[str], brand: Optional[str], category: Optional[str], barcode: Optional[str], image_url: Optional[str] = None) -> bool:
         if not self.engine:
             return False
         try:
@@ -1971,6 +2301,9 @@ class DatabaseConnection:
                 if barcode is not None:
                     updates.append("barcode = :barcode")
                     params["barcode"] = barcode
+                if image_url is not None:
+                    updates.append("image_url = :image_url")
+                    params["image_url"] = image_url
 
                 if not updates:
                     return True
@@ -2140,10 +2473,37 @@ class DatabaseConnection:
                         u.name AS user_name,
                         u.email AS user_email,
                         a.status AS analysis_status,
-                        a.created_at AS analysis_created_at
+                        a.summary AS analysis_summary,
+                        a.recommendation AS analysis_recommendation,
+                        a.created_at AS analysis_created_at,
+                        s.extracted_text,
+                        p.name AS product_name,
+                        p.brand AS product_brand,
+                        p.category AS product_category,
+                        COUNT(DISTINCT si.ingredient_id) AS matched_ingredient_count,
+                        GROUP_CONCAT(DISTINCT i.name ORDER BY i.name SEPARATOR ', ') AS matched_ingredients
                     FROM user_histories uh
                     LEFT JOIN users u ON u.id = uh.user_id
                     LEFT JOIN analyses a ON a.id = uh.analysis_id
+                    LEFT JOIN scans s ON s.id = a.scan_id
+                    LEFT JOIN products p ON p.id = s.product_id
+                    LEFT JOIN scan_ingredients si ON si.scan_id = s.id
+                    LEFT JOIN ingredients i ON i.id = si.ingredient_id
+                    GROUP BY
+                        uh.id,
+                        uh.user_id,
+                        uh.analysis_id,
+                        uh.viewed_at,
+                        u.name,
+                        u.email,
+                        a.status,
+                        a.summary,
+                        a.recommendation,
+                        a.created_at,
+                        s.extracted_text,
+                        p.name,
+                        p.brand,
+                        p.category
                     ORDER BY uh.viewed_at DESC
                     LIMIT :limit
                     """
@@ -2151,22 +2511,73 @@ class DatabaseConnection:
 
                 rows = conn.execute(query, {"limit": limit}).mappings().all()
 
-                return [
-                    {
+                result = []
+                for row in rows:
+                    raw_matched = row.get("matched_ingredients")
+                    matched_list = [item.strip() for item in str(raw_matched).split(",") if item.strip()] if raw_matched else []
+                    result.append({
                         "id": row.get("id"),
                         "user_id": row.get("user_id"),
                         "user_name": row.get("user_name"),
                         "user_email": row.get("user_email"),
                         "analysis_id": row.get("analysis_id"),
                         "analysis_status": row.get("analysis_status"),
+                        "product_name": row.get("product_name"),
+                        "product_brand": row.get("product_brand"),
+                        "product_category": row.get("product_category"),
+                        "summary": row.get("analysis_summary"),
+                        "recommendation": row.get("analysis_recommendation"),
+                        "extracted_text": row.get("extracted_text"),
+                        "matched_ingredient_count": row.get("matched_ingredient_count") or 0,
+                        "matched_ingredients": matched_list,
                         "analysis_created_at": self._to_iso_datetime(row.get("analysis_created_at")),
                         "viewed_at": self._to_iso_datetime(row.get("viewed_at")),
-                    }
-                    for row in rows
-                ]
+                    })
+                return result
         except Exception as e:
             logger.error(f"Error fetching user histories list: {e}")
             return []
+
+    def set_reset_otp(self, email: str, otp: str, expires_at: datetime) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    text("UPDATE users SET reset_otp = :otp, reset_otp_expires_at = :expires_at WHERE email = :email"),
+                    {"otp": otp, "expires_at": expires_at, "email": email}
+                )
+                return result.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error setting reset OTP: {e}")
+            return False
+
+    def verify_and_clear_reset_otp(self, email: str, otp: str) -> bool:
+        if not self.engine:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                row = conn.execute(
+                    text("SELECT reset_otp, reset_otp_expires_at FROM users WHERE email = :email LIMIT 1"),
+                    {"email": email}
+                ).mappings().first()
+
+                if not row or row.get("reset_otp") != otp:
+                    return False
+                
+                expires_at = row.get("reset_otp_expires_at")
+                if not expires_at or expires_at < datetime.now():
+                    return False
+
+                # Valid, so clear it
+                conn.execute(
+                    text("UPDATE users SET reset_otp = NULL, reset_otp_expires_at = NULL WHERE email = :email"),
+                    {"email": email}
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Error verifying reset OTP: {e}")
+            return False
 
 # Helper untuk mendapatkan instance dari koneksi database
 def get_db_connection() -> DatabaseConnection:

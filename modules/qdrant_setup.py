@@ -37,6 +37,7 @@ DATASET_SKINCARISMA_PRODUCT_INGREDIENTS = os.path.join(DATASET_DIR, "skincarisma
 
 def _normalize_name(value: str) -> str:
     """Normalize ingredient name for matching"""
+    value = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0]', ' ', value)
     normalized = re.sub(r"[^A-Za-z0-9\s\-\+\./]", " ", value.upper())
     return re.sub(r"\s+", " ", normalized).strip()
 

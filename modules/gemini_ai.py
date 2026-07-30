@@ -6,6 +6,17 @@ import json
 import re
 from typing import Any, Dict, List
 from dotenv import load_dotenv
+import socket
+
+# MONKEY PATCH: Force IPv4 for all socket connections to prevent hanging on VPS with broken IPv6 routes.
+# Many VPS providers (especially in certain regions) assign IPv6 addresses but have broken IPv6 routing to Google APIs.
+# This causes httpx to hang for 60+ seconds trying to connect to Google's IPv6 address.
+_orig_getaddrinfo = socket.getaddrinfo
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if family == 0:
+        family = socket.AF_INET
+    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+socket.getaddrinfo = _ipv4_only_getaddrinfo
 
 try:
     from google import genai as google_genai_sdk
@@ -204,26 +215,38 @@ def _build_prompt(
         trusted_context = "Tidak ada konteks tambahan yang berhasil diambil dari dataset."
 
     return f"""
-Anda adalah analis skincare profesional.
+Anda adalah konsultan perawatan kulit profesional yang terpercaya, hangat, dan komunikatif.
+Tujuan Anda adalah merangkul pengguna dari segala usia (remaja hingga dewasa) dengan memberikan penjelasan yang jujur, jelas, santun, dan nyaman dibaca (seperti berbicara dengan dokter kulit atau pakar kecantikan yang ramah dan peduli).
 
-ATURAN WAJIB:
-1. Bahas hanya ingredient yang ada pada daftar di bawah.
-2. JANGAN menggunakan kategori "Safe" atau "Warning" (karena produk skincare di Indonesia umumnya sudah BPOM dan aman). Fokus pada KECOCOKAN.
-3. Jelaskan juga secara singkat fungsi bahan-bahan yang belum dikenali di dataset agar awam paham.
-4. Jika ada bahan yang tidak disarankan untuk kondisi tertentu (misal: ibu hamil, kulit sangat sensitif), sarankan pengguna untuk berkonsultasi dengan dokter/klinik.
+ATURAN GAYA BAHASA (ALAMI, SOPAN, & TANPA BASA-BASI BERLEBIHAN):
+1. Gunakan bahasa Indonesia yang mengalir alami, santun, dan menenangkan.
+2. HINDARI kata-kata yang terlalu "alay", lebay, metafora berlebihan (seperti "minuman segar", "bintang utama", "catatan kasih sayang"), atau basa-basi pembuka yang terlalu panjang. Langsung sampaikan substansi dengan cara yang ramah dan menghargai pembaca.
+3. Hindari bahasa ilmiah/kimia yang terlalu rumit. Jika menggunakan istilah teknis (seperti humektan, antioksidan, atau skin barrier), selalu sertakan penjelasan singkat yang praktis dan mudah dipahami oleh orang awam.
+4. JANGAN menggunakan kategori "Safe" atau "Warning" (karena produk skincare di Indonesia umumnya sudah BPOM dan aman). Fokuslah pada penjelasan KECOCOKAN dan MANFAAT nyata bagi kulit.
+5. Bahas hanya ingredient yang ada pada daftar hasil OCR di bawah ini.
 
 Daftar ingredient hasil OCR (trusted input):
 {ingredient_list_text}
 
 Status RAG: {rag_status}
 
-Konteks tepercaya (gunakan ini sebagai sumber utama):
+Konteks tepercaya dari database & riset medis (gunakan ini sebagai dasar ilmiah Anda):
 {trusted_context}
 
-FORMAT JAWABAN (Jawab dengan paragraf yang rapi dan mengalir):
-1) Kecocokan Jenis Kulit: Produk ini cocok untuk jenis kulit apa dan kurang cocok untuk jenis kulit apa.
-2) Kombinasi Bahan: Bahan ini cocok dikombinasi dengan apa, dan tidak cocok dikombinasi dengan apa.
-3) Peringatan Khusus & Penjelasan Bahan: Jelaskan singkat jika ada bahan yang perlu dihindari ibu hamil/kondisi tertentu (sarankan ke dokter). Jelaskan fungsi bahan utama dan bahan yang mungkin kurang umum agar awam paham.
+FORMAT JAWABAN (TERSTRUKTUR, RAPI, & NYAMAN DIBACA):
+Tuliskan jawaban Anda dalam 4 bagian dengan judul/heading berikut:
+
+✨ **Fokus & Manfaat Utama Produk**
+(Jelaskan secara jelas dan mengalir tentang apa fungsi utama produk ini berdasarkan bahan aktifnya, serta bagaimana formulasi ini bekerja merawat kulit tanpa kalimat marketing yang berlebihan).
+
+🎯 **Kecocokan Jenis Kulit & Tips Pemakaian**
+(Jelaskan produk ini paling ideal untuk kondisi kulit apa - misal kusam, berminyak, atau kering - serta berikan panduan cara pakai yang praktis agar hasilnya optimal dan kulit tetap nyaman).
+
+💡 **Panduan Kombinasi Bahan**
+(Jelaskan bahan skincare lain apa yang sangat baik dipadukan dengan produk ini untuk meningkatkan hasil perawatan, serta kombinasi bahan apa yang sebaiknya dihindari atau diberi jarak waktu pemakaian).
+
+📌 **Perhatian Khusus & Keamanan**
+(Jelaskan secara santun dan objektif jika ada bahan tertentu yang perlu diperhatikan. Untuk ibu hamil, ibu menyusui, atau pemilik kulit super sensitif, berikan anjuran medis yang menenangkan untuk berkonsultasi dengan dokter atau klinik kesehatan kulit agar pengguna merasa aman dan didukung).
 """.strip()
 
 
@@ -362,7 +385,9 @@ def generate_simple_descriptions(matched_ingredients: List[Dict[str, Any]]) -> D
         name = ing.get("name") or ing.get("ocr_token_used") or ""
         if not name:
             continue
-        desc = ing.get("dataset_description") or ing.get("description") or ""
+        desc = ing.get("dataset_description") or ""
+        if desc.strip():
+            continue
         funcs = ing.get("dataset_functions") or ing.get("function") or ""
         ingredient_list.append(f"- {name}: Data({desc}) Fungsi({funcs})")
 
@@ -370,17 +395,17 @@ def generate_simple_descriptions(matched_ingredients: List[Dict[str, Any]]) -> D
         return {}
 
     prompt = f"""
-Anda adalah ahli skincare yang bertugas menjelaskan bahan skincare ke orang awam.
-Berikan penjelasan SINGKAT (maksimal 1 kalimat, gunakan bahasa awam/mudah dipahami, JANGAN bahasa kimia rumit) tentang fungsi utama dari setiap bahan berikut.
-Tujuan: Pembaca langsung tahu "bahan ini buat apa".
-Jika datanya kosong/terbatas (misal AQUA), gunakan pengetahuan umum tentang bahan skincare tersebut (misal AQUA = Air murni yang berfungsi sebagai pelarut utama).
+Anda adalah konsultan perawatan kulit profesional yang bertugas menjelaskan manfaat bahan kosmetik kepada orang awam dari segala usia.
+Berikan penjelasan SINGKAT (maksimal 1 kalimat yang jelas, santun, alami, dan mudah dipahami) tentang manfaat praktis dari setiap bahan berikut.
+Tujuan: Pembaca dari umur remaja hingga dewasa langsung paham "bahan ini bermanfaat untuk apa" dengan nyaman. Hindari bahasa kimia rumit dan hindari kata-kata marketing yang berlebihan atau alay.
+Jika datanya kosong/terbatas (misal AQUA), gunakan pengetahuan umum (misal AQUA = Air murni yang berfungsi sebagai pelarut dasar produk).
 
 Daftar Bahan:
 {chr(10).join(ingredient_list)}
 
 FORMAT JAWABAN WAJIB JSON VALID (TANPA teks lain):
 {{
-  "NAMA_BAHAN": "Penjelasan singkat maksimal 1 kalimat...",
+  "NAMA_BAHAN": "Penjelasan praktis maksimal 1 kalimat...",
   "NAMA_BAHAN_2": "..."
 }}
 """.strip()
@@ -416,7 +441,7 @@ FORMAT JAWABAN WAJIB JSON VALID (TANPA teks lain):
     return {}
 
 
-def extract_ingredients_from_ocr(raw_text: str) -> List[str]:
+def extract_ingredients_from_ocr(raw_text: str, timeout_seconds: int = 25) -> List[str]:
     """
     Uses Gemini AI to intelligently extract ONLY the ingredients list from messy OCR text.
     Ignores marketing fluff, directions, and warnings.
@@ -437,9 +462,9 @@ TUGAS ANDA:
 1. Temukan bagian yang berisi daftar "Ingredients" atau "Komposisi".
 2. Ekstrak HANYA nama-nama bahan tersebut.
 3. ABAIKAN teks lain seperti "Cara pakai", "Peringatan", "Netto", alamat pabrik, nomor BPOM, atau deskripsi produk.
-4. Jangan menambahkan nomor atau bullet point.
+4. Jangan menambahkan nomor urut list di awal baris (misal: "1. AQUA" -> salah, "AQUA" -> benar). TETAP PERTAHANKAN ANGKA DAN TANDA HUBUNG (hyphen) pada nama bahan kimia/surfaktan sebagaimana aslinya tanpa dihilangkan (misal: "PEG-40 HYDROGENATED CASTOR OIL", "POLYSORBATE 20", "BENZOPHENONE-3", "PPG-26-BUTETH-26", "CI 77891" wajib ditulis LENGKAP beserta angkanya).
 5. PISAHKAN (split) nama bahan yang tergabung atau rapat tanpa pemisah koma akibat kesalahan pemindaian OCR (misalnya: "AQUA(WATERLCOCONUTALKANES" harus dipecah menjadi "AQUA", "WATER", "COCONUT ALKANES"; "DIMETHICONEISODECYL" dipecah menjadi "DIMETHICONE", "ISODECYL"; "CROSSPOLYMER GLYCERIN" dipecah menjadi "CROSSPOLYMER", "GLYCERIN").
-6. Pastikan setiap string dalam JSON array mewakili SATU nama bahan kosmetik (INCI) standar saja.
+6. Pastikan setiap string dalam JSON array mewakili SATU nama bahan kosmetik (INCI) standar saja tanpa memotong angka spesifikasi kimiawi.
 
 TEKS OCR MENTAH:
 \"\"\"
@@ -479,6 +504,6 @@ FORMAT JAWABAN WAJIB JSON ARRAY BERISI STRING (TANPA teks lain di luar JSON):
 
     request_thread = threading.Thread(target=run_request, daemon=True)
     request_thread.start()
-    request_thread.join(timeout=GEMINI_TIMEOUT_SECONDS)
+    request_thread.join(timeout=timeout_seconds)
 
     return result_holder["value"]

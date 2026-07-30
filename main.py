@@ -1,3 +1,10 @@
+import os
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+# Fix internal PaddlePaddle CPU bugs by disabling PIR and MKLDNN globally
+os.environ['FLAGS_enable_pir_api'] = '0'
+os.environ['FLAGS_use_mkldnn'] = '0'
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -6,12 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 import shutil
 import os
+import time
 import json
 from jose import jwt, JWTError
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
 
@@ -28,7 +37,7 @@ from database.db_connection import get_db_connection
 from modules.fcm_notification import send_notification
 from modules.preprocessing import preprocess_image
 from modules.ocr import extract_text_from_image, extract_text_from_image_path
-from modules.auth_api import router as auth_router
+from modules.auth_api import get_password_hash, router as auth_router
 from sqlalchemy import text
 
 API_MONITORING_KEY = os.getenv("MONITORING_API_KEY")
@@ -50,23 +59,79 @@ async def startup_event():
     print("      WARMING UP MODELS (PRE-LOADING AI)      ")
     print("="*50)
     try:
-        from modules.embedding_utils import _get_model
-        print("Pre-loading SentenceTransformer (embeddings)...")
-        _get_model()
+        hf_token = os.getenv("HF_TOKEN") or os.getenv("HF_API_KEY")
+        if hf_token:
+            print("HF_TOKEN/HF_API_KEY ditemukan. Menggunakan Hugging Face Serverless API.")
+            print("Menghindari pre-load model local SentenceTransformer untuk menghemat RAM.")
+        else:
+            from modules.embedding_utils import _get_model
+            print("Pre-loading SentenceTransformer (embeddings) secara lokal...")
+            _get_model()
     except Exception as e:
         print(f"Error pre-loading SentenceTransformer: {e}")
 
-    engine = os.getenv("OCR_ENGINE", "tesseract").lower().strip()
-    if engine == "paddleocr":
-        try:
-            from modules.ocr import PaddleOCRProcessor
-            print("Pre-loading PaddleOCR engine...")
-            PaddleOCRProcessor.get_instance()
-        except Exception as e:
-            print(f"Error pre-loading PaddleOCR: {e}")
-    else:
-        print("Tesseract OCR murni aktif (tidak perlu pre-load model di memori).")
+    print("OCR engine: On-Device (Google MLKit via Flutter). Backend hanya memproses teks.")
     print("="*50 + "\n")
+
+    # ── Start daily recurring notification scheduler ──────────────────────────
+    def _check_recurring_notifications():
+        """Called every minute by APScheduler. Sends repeat_daily notifications at their repeat_time."""
+        try:
+            from datetime import timedelta
+            wib_tz = timezone(timedelta(hours=7))
+            
+            from database.db_connection import get_db_connection as _get_db
+            db = _get_db()
+            
+            now_wib = datetime.now(wib_tz)
+            now_str = now_wib.strftime("%H:%M")
+            today_str = now_wib.strftime("%Y-%m-%d")
+
+            candidates = db.get_recurring_notifications()
+            for notif in candidates:
+                repeat_time = (notif.get("repeat_time") or "").strip()
+                if repeat_time != now_str:
+                    continue
+
+                # Skip if already sent today
+                last_sent = notif.get("last_sent_at")
+                if last_sent is not None:
+                    if isinstance(last_sent, str):
+                        last_sent_date = last_sent[:10]
+                    else:
+                        last_sent_date = last_sent.strftime("%Y-%m-%d")
+                    if last_sent_date == today_str:
+                        continue
+
+                nid = notif["id"]
+                title = notif.get("title") or ""
+                body = notif.get("body") or ""
+                data = notif.get("data")
+                topic = notif.get("topic")
+                tokens = notif.get("tokens")
+                fcm_data: dict = {}
+                if data and isinstance(data, dict):
+                    fcm_data = {str(k): str(v) for k, v in data.items() if v is not None}
+
+                try:
+                    send_notification(
+                        title=title,
+                        body=body,
+                        data=fcm_data,
+                        topic=topic,
+                        tokens=tokens,
+                    )
+                    db.update_last_sent_at(nid)
+                    print(f"[Scheduler] Recurring notification #{nid} sent at {now_str}")
+                except Exception as send_err:
+                    print(f"[Scheduler] Failed to send recurring notification #{nid}: {send_err}")
+        except Exception as outer_err:
+            print(f"[Scheduler] Error in recurring check: {outer_err}")
+
+    _recurring_scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
+    _recurring_scheduler.add_job(_check_recurring_notifications, "cron", minute="*")
+    _recurring_scheduler.start()
+    print("[Scheduler] Daily recurring notification scheduler started (checks every minute, WIB).")
 
 
 # Make sure uploads directory exists
@@ -196,7 +261,8 @@ async def upload_profile_picture(request: Request, file: UploadFile = File(...),
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{file.filename}"
+        safe_fname = os.path.basename(file.filename) if file.filename else "profile.jpg"
+        filename = f"user_{user_id}_{int(datetime.now().timestamp())}_{safe_fname}"
         save_path = os.path.join("uploads/profile_pictures", filename)
         with open(save_path, "wb") as f:
             content = await file.read()
@@ -228,6 +294,7 @@ class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
     profile_picture: Optional[str] = None
     password: Optional[str] = None
+    fcm_token: Optional[str] = None
 
 
 @app.post("/profile/update")
@@ -254,7 +321,8 @@ def update_profile(request_data: UpdateProfileRequest, request: Request, db=Depe
                     name = COALESCE(NULLIF(:name, ''), name),
                     email = COALESCE(NULLIF(:email, ''), email),
                     profile_picture = COALESCE(NULLIF(:profile_picture, ''), profile_picture),
-                    password = COALESCE(NULLIF(:password, ''), password)
+                    password = COALESCE(NULLIF(:password, ''), password),
+                    fcm_token = COALESCE(NULLIF(:fcm_token, ''), fcm_token)
                 WHERE id = :user_id
                 """
             ), {
@@ -262,6 +330,7 @@ def update_profile(request_data: UpdateProfileRequest, request: Request, db=Depe
                 "email": request_data.email or "",
                 "profile_picture": incoming_pp or "",
                 "password": request_data.password or "",
+                "fcm_token": request_data.fcm_token or "",
                 "user_id": user_id,
             })
 
@@ -339,6 +408,7 @@ class MetricsSummaryResponse(BaseModel):
 class RecentAnalysisResponse(BaseModel):
     id: int
     scan_id: Optional[int] = None
+    image_url: Optional[str] = None
     raw_text: Optional[str] = None
     summary: Optional[str] = None
     recommendation: Optional[str] = None
@@ -358,6 +428,10 @@ class UserSummaryResponse(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     provider: Optional[str] = None
+    firebase_uid: Optional[str] = None
+    profile_picture: Optional[str] = None
+    fcm_token: Optional[str] = None
+    device_token: Optional[str] = None
     analysis_count: int = 0
     last_analysis_at: Optional[str] = None
     created_at: Optional[str] = None
@@ -369,6 +443,7 @@ class ProductSummaryResponse(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     barcode: Optional[str] = None
+    image_url: Optional[str] = None
     scan_count: int = 0
     analysis_count: int = 0
     created_at: Optional[str] = None
@@ -403,6 +478,14 @@ class UserHistorySummaryResponse(BaseModel):
     user_email: Optional[str] = None
     analysis_id: Optional[int] = None
     analysis_status: Optional[str] = None
+    product_name: Optional[str] = None
+    product_brand: Optional[str] = None
+    product_category: Optional[str] = None
+    summary: Optional[str] = None
+    recommendation: Optional[str] = None
+    extracted_text: Optional[str] = None
+    matched_ingredient_count: Optional[int] = None
+    matched_ingredients: Optional[List[str]] = None
     analysis_created_at: Optional[str] = None
     viewed_at: Optional[str] = None
 
@@ -702,17 +785,32 @@ async def analyze_image(
 ):
     """Receives an image for OCR, then processes the text."""
     try:
-        # Save temporary file
-        temp_path = f"uploads/{file.filename}"
-        with open(temp_path, "wb") as buffer:
+        import uuid
+        # Save file safely to a permanent scan directory
+        safe_name = os.path.basename(file.filename) if file.filename else "upload.jpg"
+        ext = os.path.splitext(safe_name)[1]
+        if not ext: ext = ".jpg"
+        unique_filename = f"scan_{int(time.time())}_{uuid.uuid4().hex[:8]}{ext}"
+        scan_dir = os.path.join("uploads", "scans")
+        os.makedirs(scan_dir, exist_ok=True)
+        final_path = os.path.join(scan_dir, unique_filename)
+        
+        with open(final_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # 1. OCR Preprocessing and Extraction (routes to PaddleOCR if configured, otherwise falls back to Tesseract)
-        extracted_text = extract_text_from_image_path(temp_path)
+        start_time = time.time()
+        extracted_text = extract_text_from_image_path(final_path)
+        exec_time_ms = int((time.time() - start_time) * 1000)
         
-        # Cleanup temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        print("\n" + "="*60)
+        print(f"📷 [SCAN APK RESULT] File Uploaded: {unique_filename} | ⏱️ Waktu OCR: {exec_time_ms} ms")
+        print("-" * 60)
+        print(f"📑 Teks Hasil OCR:\n{extracted_text.strip() if extracted_text.strip() else '(Kosong / Tidak ada teks)'}")
+        print("="*60 + "\n")
+        
+        # WE NO LONGER DELETE THE IMAGE HERE. It's saved for history.
+        image_url = f"/uploads/scans/{unique_filename}"
             
         if not extracted_text.strip():
             raise HTTPException(status_code=400, detail="Could not extract text from the image.")
@@ -726,6 +824,7 @@ async def analyze_image(
             product_name=product_name,
             product_brand=product_brand,
             product_category=product_category,
+            image_url=image_url,
         )
         
     except Exception as e:
@@ -737,6 +836,7 @@ def process_text_analysis(
     product_name: Optional[str] = None,
     product_brand: Optional[str] = None,
     product_category: Optional[str] = None,
+    image_url: Optional[str] = None,
 ):
     """Helper function to run the NLP/AI pipeline on text."""
     # 1. Keep only ingredient-like text for downstream AI and matching
@@ -752,11 +852,22 @@ def process_text_analysis(
     # 4. Ingredient matching
     matched_ingredients = match_tokens_to_db(cleaned_tokens, db_ingredients)
     
+    matched_names = [m.get("name") for m in matched_ingredients if m.get("status") != "Unknown"]
+    print(f"🔬 [NLP ANALYSIS] Total Tokens ({len(cleaned_tokens)}): {cleaned_tokens[:10]}...")
+    print(f"✅ [INGREDIENT MATCHING] Berhasil Dikenali ({len(matched_names)} bahan): {matched_names}\n")
+    
     # 5. Enrich matched ingredients with dataset descriptions
     # Tambahkan deskripsi singkat dari dataset RAG untuk setiap ingredient
+    qdrant_client = None
+    try:
+        from modules.qdrant_client_factory import get_qdrant_client
+        qdrant_client = get_qdrant_client()
+    except Exception as e:
+        print(f"Failed to initialize Qdrant client for enriching ingredients: {e}")
+
     for ingredient in matched_ingredients:
         ingredient_name = ingredient.get("name", "")
-        dataset_info = get_ingredient_simple_description(ingredient_name)
+        dataset_info = get_ingredient_simple_description(ingredient_name, client=qdrant_client)
         
         if dataset_info and dataset_info.get("found_in_dataset"):
             # Tambahkan info dari dataset
@@ -779,6 +890,12 @@ def process_text_analysis(
             ingredient["dataset_sources"] = []
             ingredient["found_in_dataset"] = False
 
+    if qdrant_client is not None:
+        try:
+            qdrant_client.close()
+        except Exception:
+            pass
+
     # 6. Rule-based expert analysis
     expert_report = run_expert_system(matched_ingredients)
     
@@ -799,10 +916,10 @@ def process_text_analysis(
         ai_result_payload = future_ai.result()
         simple_descriptions_map = future_simple.result()
 
-    # Mapped simple descriptions
+    # Mapped simple descriptions (only for ingredients that don't already have one from Qdrant)
     for ing in matched_ingredients:
         name = str(ing.get("name") or ing.get("ocr_token_used") or "").upper().strip()
-        if name in simple_descriptions_map:
+        if name in simple_descriptions_map and not (ing.get("dataset_description") or "").strip():
             ing["dataset_description"] = simple_descriptions_map[name]
 
 
@@ -852,6 +969,7 @@ def process_text_analysis(
         product_name=product_name,
         product_brand=product_brand,
         product_category=product_category,
+        image_url=image_url,
     )
     if saved_id:
         result_data["analysis_id"] = saved_id
@@ -878,31 +996,42 @@ def get_recommendations(
         description="Recommendation strategy: 'auto' (semantic + fallback), 'semantic', 'overlap'",
     ),
     category: Optional[str] = Query(default=None, description="Category of the scanned product"),
+    skin_type: Optional[str] = Query(default=None, description="Skin type of the user"),
+    skin_concern: Optional[str] = Query(default=None, description="Primary skin concern of the user"),
 ):
     """
-    Return top-N similar products from the INCIDecoder dataset.
-
-    Strategy options (mode param):
-    - 'auto'     : Qdrant semantic search first, falls back to string-overlap
-                   when fewer than 3 semantic results are found.
-    - 'semantic' : Pure Qdrant vector similarity (requires Qdrant data to be
-                   set up via qdrant_setup.py).
-    - 'overlap'  : Classic substring-overlap (fast, no Qdrant required).
-
-    Response fields per product:
-      name, brand, category_tags, url, similarity_pct, matched_ingredients,
-      match_reason (e.g. "Fungsi serupa: moisturizer, humectant")
+    Return top-N similar products from the INCIDecoder dataset with personalized matching and compatibility checks.
     """
     ingredient_names = [i.strip() for i in ingredients.split(",") if i.strip()]
     if not ingredient_names:
-        return {"recommendations": [], "mode_used": mode}
+        return {
+            "recommendations": [],
+            "compatibility_tips": {"conflicts": [], "synergies": []},
+            "routine_tip": "",
+            "mode_used": mode
+        }
 
     valid_modes = {"auto", "semantic", "overlap"}
     if mode not in valid_modes:
         mode = "auto"
 
-    result = _recommender_get(ingredient_names, limit=limit, mode=mode, category=category)
-    return {"recommendations": result, "mode_used": mode}
+    result = _recommender_get(
+        ingredient_names,
+        limit=limit,
+        mode=mode,
+        category=category,
+        skin_type=skin_type,
+        skin_concern=skin_concern
+    )
+    
+    return {
+        "recommendations": result.get("recommendations", []),
+        "compatibility_tips": result.get("compatibility_tips", {"conflicts": [], "synergies": []}),
+        "routine_tip": result.get("routine_tip", ""),
+        "mode_used": mode,
+        "skin_type_used": skin_type,
+        "skin_concern_used": skin_concern
+    }
 
 
 def _build_summary_text(expert_report: Dict[str, Any]) -> str:
@@ -1025,6 +1154,144 @@ def metrics_users(
     return db.get_users(limit=limit)
 
 
+class AdminUserCreateRequest(BaseModel):
+    name: Optional[str] = None
+    email: EmailStr
+    password: str
+    role: Optional[str] = "user"
+    provider: Optional[str] = "manual"
+    firebase_uid: Optional[str] = None
+
+
+class AdminUserUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    provider: Optional[str] = None
+    firebase_uid: Optional[str] = None
+    profile_picture: Optional[str] = None
+    fcm_token: Optional[str] = None
+    device_token: Optional[str] = None
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _validate_admin_user_password(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password minimal 8 karakter")
+
+
+@app.get("/admin/users", dependencies=[Depends(require_monitoring_access)])
+def admin_list_users(limit: int = Query(default=1000, ge=1, le=5000), db=Depends(get_db_connection)):
+    return {"items": db.get_users(limit=limit)}
+
+
+@app.post("/admin/users", dependencies=[Depends(require_monitoring_access)])
+def admin_create_user(payload: AdminUserCreateRequest, db=Depends(get_db_connection)):
+    email = str(payload.email).strip().lower()
+    if db.get_admin_user_by_email(email):
+        raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+
+    _validate_admin_user_password(payload.password)
+    user_id = db.create_admin_user(
+        name=_normalize_optional_text(payload.name),
+        email=email,
+        password_hash=get_password_hash(payload.password),
+        role=_normalize_optional_text(payload.role) or "user",
+        provider=_normalize_optional_text(payload.provider) or "manual",
+        firebase_uid=_normalize_optional_text(payload.firebase_uid),
+    )
+    if not user_id:
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+    return db.get_admin_user_by_id(user_id) or {"id": user_id}
+
+
+@app.get("/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_get_user(user_id: int, db=Depends(get_db_connection)):
+    user = db.get_admin_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.put("/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_update_user(user_id: int, payload: AdminUserUpdateRequest, db=Depends(get_db_connection)):
+    user = db.get_admin_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    email = str(payload.email).strip().lower() if payload.email else None
+    if email:
+        existing = db.get_admin_user_by_email(email)
+        if existing and int(existing.get("id") or 0) != user_id:
+            raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+
+    password_hash = None
+    if payload.password is not None and payload.password.strip():
+        _validate_admin_user_password(payload.password)
+        password_hash = get_password_hash(payload.password)
+
+    ok = db.update_admin_user(
+        user_id=user_id,
+        name=_normalize_optional_text(payload.name),
+        email=email,
+        password_hash=password_hash,
+        role=_normalize_optional_text(payload.role),
+        provider=_normalize_optional_text(payload.provider),
+        firebase_uid=_normalize_optional_text(payload.firebase_uid),
+        profile_picture=_normalize_optional_text(payload.profile_picture),
+        fcm_token=_normalize_optional_text(payload.fcm_token),
+        device_token=_normalize_optional_text(payload.device_token),
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update user")
+
+    return db.get_admin_user_by_id(user_id) or {"id": user_id}
+
+
+@app.delete("/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def admin_delete_user(user_id: int, db=Depends(get_db_connection)):
+    user = db.get_admin_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ok = db.delete_admin_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+    return {"status": "deleted"}
+
+
+@app.get("/api/dermify/admin/users", dependencies=[Depends(require_monitoring_access)])
+def alias_list_users(limit: int = Query(default=1000, ge=1, le=5000), db=Depends(get_db_connection)):
+    return admin_list_users(limit, db)
+
+
+@app.post("/api/dermify/admin/users", dependencies=[Depends(require_monitoring_access)])
+def alias_create_user(payload: AdminUserCreateRequest, db=Depends(get_db_connection)):
+    return admin_create_user(payload, db)
+
+
+@app.get("/api/dermify/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_get_user(user_id: int, db=Depends(get_db_connection)):
+    return admin_get_user(user_id, db)
+
+
+@app.put("/api/dermify/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_update_user(user_id: int, payload: AdminUserUpdateRequest, db=Depends(get_db_connection)):
+    return admin_update_user(user_id, payload, db)
+
+
+@app.delete("/api/dermify/admin/users/{user_id}", dependencies=[Depends(require_monitoring_access)])
+def alias_delete_user(user_id: int, db=Depends(get_db_connection)):
+    return admin_delete_user(user_id, db)
+
+
 @app.get("/metrics/analyses", response_model=List[RecentAnalysisResponse])
 def metrics_analyses(
     limit: int = Query(default=1000, ge=1, le=5000),
@@ -1058,6 +1325,7 @@ class ProductCreateRequest(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     barcode: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class ProductUpdateRequest(BaseModel):
@@ -1065,11 +1333,18 @@ class ProductUpdateRequest(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     barcode: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 @app.post("/admin/products", dependencies=[Depends(require_monitoring_access)])
 def admin_create_product(payload: ProductCreateRequest, db=Depends(get_db_connection)):
-    product_id = db.create_product(payload.name.strip(), (payload.brand or '').strip() or None, (payload.category or '').strip() or None, (payload.barcode or '').strip() or None)
+    product_id = db.create_product(
+        payload.name.strip(),
+        (payload.brand or '').strip() or None,
+        (payload.category or '').strip() or None,
+        (payload.barcode or '').strip() or None,
+        (payload.image_url or '').strip() or None,
+    )
     if not product_id:
         raise HTTPException(status_code=500, detail="Failed to create product")
     return {"id": product_id}
@@ -1085,7 +1360,7 @@ def admin_get_product(product_id: int, db=Depends(get_db_connection)):
 
 @app.put("/admin/products/{product_id}", dependencies=[Depends(require_monitoring_access)])
 def admin_update_product(product_id: int, payload: ProductUpdateRequest, db=Depends(get_db_connection)):
-    ok = db.update_product(product_id, payload.name, payload.brand, payload.category, payload.barcode)
+    ok = db.update_product(product_id, payload.name, payload.brand, payload.category, payload.barcode, payload.image_url)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to update product")
     return {"status": "ok"}
@@ -1183,10 +1458,84 @@ class NotificationCreateRequest(BaseModel):
     # Accept either an object/dict or a JSON string from the frontend
     data: Optional[object] = None
     topic: Optional[str] = None
+    user_id: Optional[int] = None
+    target_user_id: Optional[int] = None
     # Accept either a list of tokens or a JSON string
     tokens: Optional[object] = None
     status: Optional[str] = "draft"
     scheduled_at: Optional[str] = None
+    repeat_daily: Optional[bool] = False
+    repeat_time: Optional[str] = None  # format "HH:MM" (WIB)
+
+
+def _normalize_notification_tokens(tokens_field: Any) -> Optional[List[str]]:
+    if tokens_field is None:
+        return None
+    if isinstance(tokens_field, str):
+        try:
+            tokens_field = json.loads(tokens_field)
+        except Exception:
+            tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
+    if isinstance(tokens_field, list):
+        tokens = [str(token).strip() for token in tokens_field if str(token).strip()]
+        return tokens or None
+    return None
+
+
+def _extract_target_user_id(payload: Dict[str, Any], data_field: Any = None) -> Optional[int]:
+    raw_target = payload.get("target_user_id") or payload.get("user_id")
+    if raw_target is None and isinstance(data_field, dict):
+        raw_target = data_field.get("target_user_id") or data_field.get("user_id")
+    if raw_target in (None, ""):
+        return None
+    try:
+        target_user_id = int(raw_target)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="target_user_id harus berupa angka")
+    if target_user_id <= 0:
+        raise HTTPException(status_code=400, detail="target_user_id tidak valid")
+    return target_user_id
+
+
+def _prepare_notification_target(
+    payload: Dict[str, Any],
+    data_field: Any,
+    topic: Optional[str],
+    tokens_field: Optional[List[str]],
+    db,
+    require_tokens: bool = False,
+) -> tuple[Any, Optional[str], Optional[List[str]], Optional[int]]:
+    target_user_id = _extract_target_user_id(payload, data_field)
+    if not target_user_id:
+        return data_field, topic, tokens_field, None
+
+    if not isinstance(data_field, dict):
+        data_field = {} if data_field in (None, "") else {"payload": str(data_field)}
+
+    data_field["target_user_id"] = target_user_id
+    data_field["user_id"] = target_user_id
+
+    target_user = db.get_admin_user_by_id(target_user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+
+    resolved_tokens = tokens_field or db.get_user_notification_tokens(target_user_id)
+    if require_tokens and not resolved_tokens:
+        raise HTTPException(
+            status_code=400,
+            detail="User ini belum punya token notifikasi. Login dari aplikasi mobile dulu atau simpan FCM token user.",
+        )
+
+    return data_field, None, resolved_tokens, target_user_id
+
+
+def _stringify_fcm_data(data_field: Any) -> Dict[str, str]:
+    fcm_data: Dict[str, str] = {}
+    if data_field and isinstance(data_field, dict):
+        for k, v in data_field.items():
+            if v is not None:
+                fcm_data[str(k)] = str(v)
+    return fcm_data
 
 
 @app.get("/admin/notifications", dependencies=[Depends(require_monitoring_access)])
@@ -1232,23 +1581,36 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
     if isinstance(topic, str):
         topic = topic.strip() or None
 
-    tokens_field = payload.get("tokens")
-    if isinstance(tokens_field, str):
-        try:
-            tokens_field = json.loads(tokens_field)
-        except Exception:
-            # attempt simple split
-            try:
-                tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
-            except Exception:
-                tokens_field = None
-
     status = payload.get("status") or "draft"
     scheduled_at = payload.get("scheduled_at")
     send_now = bool(payload.get("send_now"))
+    tokens_field = _normalize_notification_tokens(payload.get("tokens"))
+    data_field, topic, tokens_field, _ = _prepare_notification_target(
+        payload=payload,
+        data_field=data_field,
+        topic=topic,
+        tokens_field=tokens_field,
+        db=db,
+        require_tokens=send_now,
+    )
 
     # If send_now is true, default initial status to 'draft' before triggering FCM
     initial_status = "draft" if send_now else status
+
+    repeat_daily = bool(payload.get("repeat_daily"))
+    repeat_time: Optional[str] = None
+    if repeat_daily:
+        # Derive repeat_time from scheduled_at if not provided explicitly
+        raw_repeat_time = payload.get("repeat_time")
+        if raw_repeat_time and isinstance(raw_repeat_time, str) and len(raw_repeat_time) == 5:
+            repeat_time = raw_repeat_time
+        elif scheduled_at:
+            try:
+                s = str(scheduled_at).rstrip("Z")
+                dt = datetime.fromisoformat(s)
+                repeat_time = dt.strftime("%H:%M")
+            except Exception:
+                pass
 
     nid = db.create_notification(
         title=title,
@@ -1258,6 +1620,8 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
         tokens=tokens_field,
         status=initial_status,
         scheduled_at=scheduled_at,
+        repeat_daily=repeat_daily,
+        repeat_time=repeat_time,
     )
 
     if not nid:
@@ -1266,11 +1630,7 @@ def admin_create_notification(payload: dict, db=Depends(get_db_connection)):
     sent_success = False
     fcm_response = None
     if send_now:
-        fcm_data = {}
-        if data_field and isinstance(data_field, dict):
-            for k, v in data_field.items():
-                if v is not None:
-                    fcm_data[str(k)] = str(v)
+        fcm_data = _stringify_fcm_data(data_field)
         try:
             fcm_response = send_notification(
                 title=title,
@@ -1302,12 +1662,21 @@ def admin_send_notification(notification_id: int, db=Depends(get_db_connection))
     data = n.get("data")
     topic = n.get("topic")
     tokens = n.get("tokens")
+    _, topic, tokens, target_user_id = _prepare_notification_target(
+        payload={},
+        data_field=data,
+        topic=topic,
+        tokens_field=_normalize_notification_tokens(tokens),
+        db=db,
+        require_tokens=False,
+    )
+    if target_user_id and not tokens:
+        raise HTTPException(
+            status_code=400,
+            detail="User ini belum punya token notifikasi. Login dari aplikasi mobile dulu atau simpan FCM token user.",
+        )
 
-    fcm_data = {}
-    if data and isinstance(data, dict):
-        for k, v in data.items():
-            if v is not None:
-                fcm_data[str(k)] = str(v)
+    fcm_data = _stringify_fcm_data(data)
 
     try:
         response = send_notification(
@@ -1358,22 +1727,35 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
     if isinstance(topic, str):
         topic = topic.strip() or None
 
-    tokens_field = payload.get("tokens")
-    if isinstance(tokens_field, str):
-        try:
-            tokens_field = json.loads(tokens_field)
-        except Exception:
-            try:
-                tokens_field = [t.strip() for t in tokens_field.split(",") if t.strip()]
-            except Exception:
-                tokens_field = None
-
     status = payload.get("status") or n.get("status") or "draft"
     scheduled_at = payload.get("scheduled_at")
     send_now = bool(payload.get("send_now"))
+    tokens_field = _normalize_notification_tokens(payload.get("tokens"))
+    data_field, topic, tokens_field, _ = _prepare_notification_target(
+        payload=payload,
+        data_field=data_field,
+        topic=topic,
+        tokens_field=tokens_field,
+        db=db,
+        require_tokens=send_now,
+    )
 
     if send_now:
         status = "draft"
+
+    repeat_daily = bool(payload.get("repeat_daily"))
+    repeat_time: Optional[str] = None
+    if repeat_daily:
+        raw_repeat_time = payload.get("repeat_time")
+        if raw_repeat_time and isinstance(raw_repeat_time, str) and len(raw_repeat_time) == 5:
+            repeat_time = raw_repeat_time
+        elif scheduled_at:
+            try:
+                s = str(scheduled_at).rstrip("Z")
+                dt = datetime.fromisoformat(s)
+                repeat_time = dt.strftime("%H:%M")
+            except Exception:
+                pass
 
     ok = db.update_notification(
         notification_id=notification_id,
@@ -1384,6 +1766,8 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
         tokens=tokens_field,
         status=status,
         scheduled_at=scheduled_at,
+        repeat_daily=repeat_daily,
+        repeat_time=repeat_time,
     )
 
     if not ok:
@@ -1392,11 +1776,7 @@ def admin_update_notification(notification_id: int, payload: dict, db=Depends(ge
     sent_success = False
     fcm_response = None
     if send_now:
-        fcm_data = {}
-        if data_field and isinstance(data_field, dict):
-            for k, v in data_field.items():
-                if v is not None:
-                    fcm_data[str(k)] = str(v)
+        fcm_data = _stringify_fcm_data(data_field)
         try:
             fcm_response = send_notification(
                 title=title,
@@ -1502,7 +1882,8 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
                     a.created_at,
                     p.name AS product_name,
                     p.brand AS product_brand,
-                    p.category AS product_category
+                    p.category AS product_category,
+                    s.image_url
                 FROM user_histories uh
                 JOIN analyses a ON uh.analysis_id = a.id
                 JOIN scans s ON a.scan_id = s.id
@@ -1519,3 +1900,9 @@ def get_user_history(request: Request, db=Depends(get_db_connection)):
             result.append(dict(row._mapping) if hasattr(row, '_mapping') else dict(row))
             
         return {"items": result}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("Starting FastAPI Backend Server via Uvicorn (Port 8000)...")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
