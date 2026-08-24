@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir paddlepaddle==2.6.1 \
 RUN pip install --no-cache-dir uv
 
 # Install dependencies using uv
-RUN uv pip install --system --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache-dir --index-strategy unsafe-best-match -r requirements.txt
 
 COPY . .
 
