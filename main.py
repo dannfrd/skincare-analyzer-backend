@@ -36,7 +36,7 @@ from modules.rag_context import get_ingredient_simple_description
 from database.db_connection import get_db_connection
 from modules.fcm_notification import send_notification
 from modules.preprocessing import preprocess_image
-from modules.ocr import extract_text_from_image, extract_text_from_image_path
+from modules.ocr import extract_text_from_image, extract_text_from_image_path, prewarm_ocr
 from modules.auth_api import get_password_hash, router as auth_router
 from sqlalchemy import text
 
@@ -70,7 +70,17 @@ async def startup_event():
     except Exception as e:
         print(f"Error pre-loading SentenceTransformer: {e}")
 
-    print("OCR engine: On-Device (Google MLKit via Flutter). Backend hanya memproses teks.")
+    print("OCR engine: PaddleOCR (on-device preprocessing + VPS inference)")
+
+    # ── Pre-warm PaddleOCR ──────────────────────────────────────
+    # Load model ke RAM saat startup agar request pertama tidak kena cold-start lag
+    print("Pre-loading PaddleOCR model ke RAM...")
+    try:
+        prewarm_ocr()
+        print("✅ PaddleOCR siap — model sudah di RAM.")
+    except Exception as e:
+        print(f"⚠️ Pre-warm PaddleOCR gagal: {e} (tidak kritis, akan di-load saat request pertama)")
+
     print("="*50 + "\n")
 
     # ── Start daily recurring notification scheduler ──────────────────────────
