@@ -15,12 +15,12 @@ COPY requirements.txt .
 
 # Pasang PyTorch CPU agar paket CUDA berukuran besar tidak ikut diunduh.
 RUN pip install --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
     torch
 
 # Pasang PaddlePaddle CPU langsung dari Baidu (menghindari timeout pip index global)
 RUN pip install --no-cache-dir paddlepaddle==2.6.1 \
-    -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+    --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
 
 # Install uv for blazing fast dependency resolution
 RUN pip install --no-cache-dir uv
